@@ -1305,6 +1305,8 @@ def buat_pdf_penerimaan(info, tabel_df):
         )
 
 
+        kolom_kosong = "(" + " " * 20 + ")"
+
         ttd_rows = [
 
             [
@@ -1328,9 +1330,9 @@ def buat_pdf_penerimaan(info, tabel_df):
             [
                 f"({pengirim_label})",
                 "",
-                "( )",
+                kolom_kosong,
                 "",
-                "( )",
+                kolom_kosong,
                 "",
                 f"({pic_label})"
             ],
@@ -1482,39 +1484,58 @@ def render_badge(teks, warna="abu"):
     )
 
 
-def render_tombol_preview_pdf(pdf_bytes, label="👁️ Preview & Print PDF"):
-    """Tombol yang membuka PDF di TAB BARU browser (bukan download langsung),
-    supaya operator bisa lihat pratinjaunya dan pakai tombol Print bawaan
-    browser (mis. Microsoft Edge) tanpa perlu mengunduh filenya dulu.
+def render_tombol_pdf(pdf_bytes, nama_file):
+    """Menampilkan 2 tombol berdampingan (Preview & Print + Unduh) dalam SATU
+    blok HTML yang sama, supaya ukuran & posisinya simetris persis -- kalau
+    salah satu pakai tombol Streamlit asli dan satunya custom HTML, tingginya
+    suka beda sedikit dan jadi tidak sejajar.
 
-    Sengaja pakai teknik Blob URL lewat JavaScript (bukan link data: biasa) --
+    Keduanya pakai teknik Blob URL lewat JavaScript (bukan link data: biasa) --
     browser modern seperti Chrome/Edge tidak lagi membuka PDF langsung dari
     link data:application/pdf;base64,... (yang muncul cuma teks base64 mentah).
-    Blob URL didukung penuh untuk dibuka di viewer PDF bawaan browser."""
+    Blob URL didukung penuh baik untuk dibuka di viewer PDF maupun diunduh."""
     b64 = base64.b64encode(pdf_bytes).decode("utf-8")
     components.html(
         f"""
-        <button id="tombolPreviewPdf" style="
-            width:100%; height:2.6rem; border-radius:10px; border:1px solid #d1d5db;
-            background-color:#ffffff; color:#111827; font-weight:500; cursor:pointer;
-            font-family:inherit; font-size:0.95rem;
-        ">{label}</button>
+        <div style="display:flex; gap:0.75rem; width:100%; font-family:inherit;">
+            <button id="btnPreviewPdf" style="
+                flex:1; height:2.6rem; border-radius:10px; border:1px solid #d1d5db;
+                background-color:#ffffff; color:#111827; font-weight:500; cursor:pointer;
+                font-family:inherit; font-size:0.95rem;
+            ">👁️ Preview &amp; Print PDF</button>
+            <button id="btnUnduhPdf" style="
+                flex:1; height:2.6rem; border-radius:10px; border:1px solid #2563eb;
+                background-color:#2563eb; color:#ffffff; font-weight:500; cursor:pointer;
+                font-family:inherit; font-size:0.95rem;
+            ">⬇️ Unduh PDF</button>
+        </div>
         <script>
-        document.getElementById("tombolPreviewPdf").addEventListener("click", function() {{
-            const base64Data = "{b64}";
+        const base64Data = "{b64}";
+        function buatBlobPdf() {{
             const byteChars = atob(base64Data);
             const byteNumbers = new Array(byteChars.length);
             for (let i = 0; i < byteChars.length; i++) {{
                 byteNumbers[i] = byteChars.charCodeAt(i);
             }}
             const byteArray = new Uint8Array(byteNumbers);
-            const blob = new Blob([byteArray], {{ type: "application/pdf" }});
-            const blobUrl = URL.createObjectURL(blob);
+            return new Blob([byteArray], {{ type: "application/pdf" }});
+        }}
+        document.getElementById("btnPreviewPdf").addEventListener("click", function() {{
+            const blobUrl = URL.createObjectURL(buatBlobPdf());
             window.open(blobUrl, "_blank");
+        }});
+        document.getElementById("btnUnduhPdf").addEventListener("click", function() {{
+            const blobUrl = URL.createObjectURL(buatBlobPdf());
+            const a = document.createElement("a");
+            a.href = blobUrl;
+            a.download = "{nama_file}";
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
         }});
         </script>
         """,
-        height=50,
+        height=55,
     )
 
 
@@ -2137,18 +2158,7 @@ elif st.session_state.halaman == "detail":
         else:
             with st.spinner("Menyiapkan PDF..."):
                 pdf_bytes = buat_pdf_penerimaan(info, tabel)
-            col_preview, col_unduh = st.columns(2)
-            with col_preview:
-                render_tombol_preview_pdf(pdf_bytes)
-            with col_unduh:
-                st.download_button(
-                    "⬇️ Unduh PDF",
-                    data=pdf_bytes,
-                    file_name=f"BAPP_{info['nomor_penerimaan']}.pdf",
-                    mime="application/pdf",
-                    type="primary",
-                    use_container_width=True,
-                )
+            render_tombol_pdf(pdf_bytes, f"BAPP_{info['nomor_penerimaan']}.pdf")
 
 
 # =====================================================================
