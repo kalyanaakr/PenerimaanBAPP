@@ -18,6 +18,7 @@ import os
 import io
 import json
 import time
+import base64
 from datetime import datetime
 
 import pandas as pd
@@ -1459,6 +1460,22 @@ def render_badge(teks, warna="abu"):
     )
 
 
+def render_tombol_preview_pdf(pdf_bytes, label="👁️ Preview & Print PDF"):
+    """Tombol yang membuka PDF di TAB BARU browser (bukan download langsung),
+    supaya operator bisa lihat pratinjaunya dan pakai tombol Print bawaan
+    browser (mis. Microsoft Edge) tanpa perlu mengunduh filenya dulu."""
+    b64 = base64.b64encode(pdf_bytes).decode("utf-8")
+    href = f"data:application/pdf;base64,{b64}"
+    return f'''
+        <a href="{href}" target="_blank" style="
+            display:flex; align-items:center; justify-content:center;
+            background-color:#ffffff; color:#111827; border:1px solid #d1d5db;
+            border-radius:10px; padding:0.5rem 1rem; text-decoration:none;
+            font-weight:500; width:100%; box-sizing:border-box; height:2.5rem;
+        ">{label}</a>
+    '''
+
+
 NAMA_BULAN_ID = {
     1: "Januari", 2: "Februari", 3: "Maret", 4: "April", 5: "Mei", 6: "Juni",
     7: "Juli", 8: "Agustus", 9: "September", 10: "Oktober", 11: "November", 12: "Desember",
@@ -2078,13 +2095,18 @@ elif st.session_state.halaman == "detail":
         else:
             with st.spinner("Menyiapkan PDF..."):
                 pdf_bytes = buat_pdf_penerimaan(info, tabel)
-            st.download_button(
-                "🖨 Print Penerimaan (Unduh PDF)",
-                data=pdf_bytes,
-                file_name=f"BAPP_{info['nomor_penerimaan']}.pdf",
-                mime="application/pdf",
-                type="primary",
-            )
+            col_preview, col_unduh = st.columns(2)
+            with col_preview:
+                st.markdown(render_tombol_preview_pdf(pdf_bytes), unsafe_allow_html=True)
+            with col_unduh:
+                st.download_button(
+                    "⬇️ Unduh PDF",
+                    data=pdf_bytes,
+                    file_name=f"BAPP_{info['nomor_penerimaan']}.pdf",
+                    mime="application/pdf",
+                    type="primary",
+                    use_container_width=True,
+                )
 
 
 # =====================================================================
