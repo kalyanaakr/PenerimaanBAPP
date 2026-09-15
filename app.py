@@ -241,7 +241,20 @@ def _pesan_error_ramah(e):
 @st.cache_resource
 def get_gsheet_client():
     scopes = ["https://www.googleapis.com/auth/spreadsheets"]
-    creds = Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=scopes)
+    try:
+        ada_secret = "gcp_service_account" in st.secrets
+    except Exception:
+        ada_secret = False
+
+    if ada_secret:
+        # Dipakai saat aplikasi di-deploy online (mis. Streamlit Community
+        # Cloud) -- kredensial diambil dari fitur Secrets, bukan file lokal.
+        creds = Credentials.from_service_account_info(
+            dict(st.secrets["gcp_service_account"]), scopes=scopes
+        )
+    else:
+        # Dipakai saat dijalankan lokal di komputer sendiri.
+        creds = Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=scopes)
     return gspread.authorize(creds)
 
 
@@ -348,8 +361,7 @@ def catat_scan_ke_spreadsheet(item, info, urutan):
     ws = get_worksheet()
     idx = _header_dan_idx_kolom_tulis(ws)
 
-    jam_sekarang = datetime.now().strftime("%H:%M")
-    waktu_tulis = f"{info['tanggal'].strftime('%d/%m/%Y')} {jam_sekarang}"
+    waktu_tulis = info["tanggal"].strftime("%d/%m/%Y")
     baris = item["_baris_sheet"]
     nilai = {
         KOLOM_STATUS_BARU: STATUS_OPEN,
@@ -521,7 +533,10 @@ def get_riwayat():
     ringkasan["Status"] = ringkasan["Status"].apply(
         lambda v: STATUS_OPEN if str(v).strip().upper() == STATUS_OPEN else STATUS_DITERIMA
     )
-    ringkasan["_waktu_dt"] = pd.to_datetime(ringkasan["Waktu"], format="%d/%m/%Y %H:%M", errors="coerce")
+    # ambil bagian tanggal saja -- kompatibel dengan data lama yang masih
+    # menyertakan jam ("03/09/2026 14:30") maupun data baru tanpa jam ("03/09/2026")
+    tanggal_saja = ringkasan["Waktu"].astype(str).str.split(" ").str[0]
+    ringkasan["_waktu_dt"] = pd.to_datetime(tanggal_saja, format="%d/%m/%Y", errors="coerce")
     ringkasan["Tanggal"] = ringkasan["_waktu_dt"].dt.strftime("%d/%m/%Y")
     ringkasan = ringkasan.sort_values("_waktu_dt", ascending=False).drop(columns=["_waktu_dt", "Waktu"])
 
