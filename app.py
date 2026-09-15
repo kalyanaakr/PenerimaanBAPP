@@ -1310,23 +1310,27 @@ def buat_pdf_penerimaan(info, tabel_df):
             [
                 "Pengirim",
                 "",
+                "Tim Sortir",
+                "",
+                "Tim Scan",
+                "",
                 "PIC Penerimaan"
             ],
 
             [
-                "",
-                "",
-                ""
+                "", "", "", "", "", "", ""
             ],
 
             [
-                "",
-                "",
-                ""
+                "", "", "", "", "", "", ""
             ],
 
             [
                 f"({pengirim_label})",
+                "",
+                "( )",
+                "",
+                "( )",
                 "",
                 f"({pic_label})"
             ],
@@ -1338,9 +1342,13 @@ def buat_pdf_penerimaan(info, tabel_df):
             ttd_rows,
 
             colWidths=[
-                7 * cm,
-                lebar_isi - 14 * cm,
-                7 * cm
+                4.6 * cm,
+                1.2 * cm,
+                4.6 * cm,
+                1.2 * cm,
+                4.6 * cm,
+                1.2 * cm,
+                4.6 * cm,
             ],
 
             rowHeights=[
@@ -1366,7 +1374,7 @@ def buat_pdf_penerimaan(info, tabel_df):
                     "FONTSIZE",
                     (0, 0),
                     (-1, -1),
-                    10
+                    9.5
                 ),
 
                 (
@@ -1380,6 +1388,20 @@ def buat_pdf_penerimaan(info, tabel_df):
                     "FONTNAME",
                     (2, 0),
                     (2, 0),
+                    "Helvetica-Bold"
+                ),
+
+                (
+                    "FONTNAME",
+                    (4, 0),
+                    (4, 0),
+                    "Helvetica-Bold"
+                ),
+
+                (
+                    "FONTNAME",
+                    (6, 0),
+                    (6, 0),
                     "Helvetica-Bold"
                 ),
 
@@ -1463,17 +1485,37 @@ def render_badge(teks, warna="abu"):
 def render_tombol_preview_pdf(pdf_bytes, label="👁️ Preview & Print PDF"):
     """Tombol yang membuka PDF di TAB BARU browser (bukan download langsung),
     supaya operator bisa lihat pratinjaunya dan pakai tombol Print bawaan
-    browser (mis. Microsoft Edge) tanpa perlu mengunduh filenya dulu."""
+    browser (mis. Microsoft Edge) tanpa perlu mengunduh filenya dulu.
+
+    Sengaja pakai teknik Blob URL lewat JavaScript (bukan link data: biasa) --
+    browser modern seperti Chrome/Edge tidak lagi membuka PDF langsung dari
+    link data:application/pdf;base64,... (yang muncul cuma teks base64 mentah).
+    Blob URL didukung penuh untuk dibuka di viewer PDF bawaan browser."""
     b64 = base64.b64encode(pdf_bytes).decode("utf-8")
-    href = f"data:application/pdf;base64,{b64}"
-    return f'''
-        <a href="{href}" target="_blank" style="
-            display:flex; align-items:center; justify-content:center;
-            background-color:#ffffff; color:#111827; border:1px solid #d1d5db;
-            border-radius:10px; padding:0.5rem 1rem; text-decoration:none;
-            font-weight:500; width:100%; box-sizing:border-box; height:2.5rem;
-        ">{label}</a>
-    '''
+    components.html(
+        f"""
+        <button id="tombolPreviewPdf" style="
+            width:100%; height:2.6rem; border-radius:10px; border:1px solid #d1d5db;
+            background-color:#ffffff; color:#111827; font-weight:500; cursor:pointer;
+            font-family:inherit; font-size:0.95rem;
+        ">{label}</button>
+        <script>
+        document.getElementById("tombolPreviewPdf").addEventListener("click", function() {{
+            const base64Data = "{b64}";
+            const byteChars = atob(base64Data);
+            const byteNumbers = new Array(byteChars.length);
+            for (let i = 0; i < byteChars.length; i++) {{
+                byteNumbers[i] = byteChars.charCodeAt(i);
+            }}
+            const byteArray = new Uint8Array(byteNumbers);
+            const blob = new Blob([byteArray], {{ type: "application/pdf" }});
+            const blobUrl = URL.createObjectURL(blob);
+            window.open(blobUrl, "_blank");
+        }});
+        </script>
+        """,
+        height=50,
+    )
 
 
 NAMA_BULAN_ID = {
@@ -2097,7 +2139,7 @@ elif st.session_state.halaman == "detail":
                 pdf_bytes = buat_pdf_penerimaan(info, tabel)
             col_preview, col_unduh = st.columns(2)
             with col_preview:
-                st.markdown(render_tombol_preview_pdf(pdf_bytes), unsafe_allow_html=True)
+                render_tombol_preview_pdf(pdf_bytes)
             with col_unduh:
                 st.download_button(
                     "⬇️ Unduh PDF",
