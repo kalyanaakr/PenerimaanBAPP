@@ -1,0 +1,16 @@
+# Jangan pernah dibagikan / di-upload ke publik
+credentials.json
+
+# Database lokal (data riwayat penerimaan)
+bapp.db
+
+# Virtual environment
+venv/
+.venv/
+
+# File Python bawaan
+__pycache__/
+*.pyc
+
+# Streamlit
+.streamlit/secrets.toml
