@@ -5,7 +5,7 @@ Aplikasi Streamlit untuk mencatat penerimaan BAPP fisik menggunakan
 scanner barcode. Data master DAN hasil penerimaan sama-sama disimpan
 di Google Spreadsheet (sheet "data").
 
-Flow: Dashboard -> Daftar Penerimaan BAPP -> (+) Buat Penerimaan Baru
+Flow: Daftar Penerimaan BAPP -> (+) Buat Penerimaan Baru
 (popup info) -> halaman scan BAPP -> Simpan -> Detail -> Print.
 
 Cara menjalankan:
@@ -30,6 +30,7 @@ import gspread
 from gspread.utils import rowcol_to_a1
 from google.oauth2.service_account import Credentials
 
+from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -92,8 +93,8 @@ DAFTAR_DIREKTORAT_DEFAULT = ["SD", "SMP", "SMA", "SMK"]
 UKURAN_HALAMAN_DAFTAR = 10
 BAPP_PER_LEMBAR_PRINT = 40
 
-# Ukuran kertas custom untuk print Penerimaan BAPP: 24 cm x 28 cm, portrait.
-KERTAS_PRINT = (24 * cm, 28 * cm)
+# Ukuran kertas untuk print Penerimaan BAPP: A4 (21 x 29.7 cm), portrait.
+KERTAS_PRINT = A4
 
 st.set_page_config(page_title="Sistem Penerimaan BAPP", page_icon="📦", layout="wide")
 
@@ -912,7 +913,7 @@ def buat_pdf_penerimaan(info, tabel_df):
     # LEBAR KOLOM
     # =================================================================
     #
-    # TOTAL = 22 CM
+    # TOTAL = 19 CM (usable width A4 dengan margin 1cm kiri+kanan)
     #
     # Dibuat ulang supaya:
     # - Barcode Penerimaan tidak terlalu sempit
@@ -923,16 +924,16 @@ def buat_pdf_penerimaan(info, tabel_df):
     # =================================================================
 
     lebar_kolom = [
-        0.8 * cm,   # 1. No
-        2.5 * cm,   # 2. Nomor Transaksi
-        1.6 * cm,   # 3. NPSN
-        3.5 * cm,   # 4. Nama Sekolah
-        1.7 * cm,   # 5. Tanggal BAPP
-        2.1 * cm,   # 6. Barcode Penerimaan
-        2.0 * cm,   # 7. Nomor Penerimaan 1
-        1.3 * cm,   # 8. Nomor Urut
-        3.5 * cm,   # 9. Serial Number
-        3.0 * cm,   # 10. Nama Koordinator
+        0.7 * cm,   # 1. No
+        2.2 * cm,   # 2. Nomor Transaksi
+        1.4 * cm,   # 3. NPSN
+        3.0 * cm,   # 4. Nama Sekolah
+        1.5 * cm,   # 5. Tanggal BAPP
+        1.8 * cm,   # 6. Barcode Penerimaan
+        1.7 * cm,   # 7. Nomor Penerimaan 1
+        1.1 * cm,   # 8. Nomor Urut
+        3.0 * cm,   # 9. Serial Number
+        2.6 * cm,   # 10. Nama Koordinator
     ]
 
 
@@ -1015,12 +1016,12 @@ def buat_pdf_penerimaan(info, tabel_df):
         t_info = Table(
             info_rows,
             colWidths=[
-                3.2 * cm,
+                2.8 * cm,
                 0.4 * cm,
-                7.6 * cm,
-                3.2 * cm,
+                6.4 * cm,
+                2.8 * cm,
                 0.4 * cm,
-                7.2 * cm
+                6.2 * cm
             ]
         )
 
@@ -1344,13 +1345,13 @@ def buat_pdf_penerimaan(info, tabel_df):
             ttd_rows,
 
             colWidths=[
-                4.6 * cm,
-                1.2 * cm,
-                4.6 * cm,
-                1.2 * cm,
-                4.6 * cm,
-                1.2 * cm,
-                4.6 * cm,
+                4.0 * cm,
+                1.0 * cm,
+                4.0 * cm,
+                1.0 * cm,
+                4.0 * cm,
+                1.0 * cm,
+                4.0 * cm,
             ],
 
             rowHeights=[
@@ -1425,7 +1426,9 @@ def buat_pdf_penerimaan(info, tabel_df):
         )
 
 
-        flow.append(t_ttd)
+        # Tanda tangan cuma ditampilkan di HALAMAN TERAKHIR saja
+        if lembar == total_lembar - 1:
+            flow.append(t_ttd)
 
 
         # =============================================================
@@ -1456,19 +1459,6 @@ def buat_pdf_penerimaan(info, tabel_df):
 # =====================================================================
 # 7. KOMPONEN TAMPILAN KECIL (card, badge)
 # =====================================================================
-
-def render_metric_card(label, value, icon=""):
-    st.markdown(
-        f"""
-        <div style="background:#ffffff;border-radius:14px;padding:18px 20px;
-                    box-shadow:0 1px 3px rgba(0,0,0,0.08);border:1px solid #eef0f2;">
-            <div style="font-size:13px;color:#6b7280;margin-bottom:6px;">{icon} {label}</div>
-            <div style="font-size:26px;font-weight:700;color:#111827;">{value}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
 
 def render_badge(teks, warna="abu"):
     palet = {
@@ -1730,7 +1720,7 @@ else:
 for key, default in [
     ("scan_list", []),
     ("scan_message", None),
-    ("halaman", "dashboard"),
+    ("halaman", "daftar"),
     ("daftar_halaman_ke", 1),
     ("penerimaan_aktif", None),
 ]:
@@ -1746,11 +1736,6 @@ with st.sidebar:
     st.markdown("## 📦 Sistem BAPP")
     st.markdown("")
 
-    if st.button("📊 Dashboard", use_container_width=True,
-                 type="primary" if st.session_state.halaman == "dashboard" else "secondary"):
-        st.session_state.halaman = "dashboard"
-        st.rerun()
-
     st.markdown("**Penerimaan BAPP**")
     if st.button("📋 Daftar Penerimaan BAPP", use_container_width=True,
                  type="primary" if st.session_state.halaman in ("daftar", "detail") else "secondary"):
@@ -1759,12 +1744,6 @@ with st.sidebar:
     if st.button("➕ Buat Penerimaan Baru", use_container_width=True,
                  type="primary" if st.session_state.halaman == "form_baru" else "secondary"):
         buka_dialog_penerimaan_baru()
-
-    st.markdown("")
-    if st.button("📈 Laporan", use_container_width=True,
-                 type="primary" if st.session_state.halaman == "laporan" else "secondary"):
-        st.session_state.halaman = "laporan"
-        st.rerun()
 
     st.markdown("---")
     if st.button("⚙️ Pengaturan", use_container_width=True,
@@ -1779,145 +1758,10 @@ if st.session_state.get("load_error"):
 
 
 # =====================================================================
-# 11. HALAMAN: DASHBOARD
+# 11. HALAMAN: DAFTAR PENERIMAAN BAPP
 # =====================================================================
 
-if st.session_state.halaman == "dashboard":
-    c_judul, c_refresh = st.columns([6, 1])
-    with c_judul:
-        st.title("Dashboard Penerimaan BAPP")
-        st.caption("Pantau progres penerimaan BAPP secara realtime")
-    with c_refresh:
-        st.write("")
-        if st.button("🔄 Refresh"):
-            with st.spinner("Memuat ulang data..."):
-                ok = refresh_master_data()
-            if ok:
-                st.success("Data diperbarui.")
-            else:
-                st.error(st.session_state.load_error)
-
-    df_riwayat = get_riwayat()
-    df_master = st.session_state.get("master_df", pd.DataFrame())
-
-    total_penerimaan = len(df_riwayat)
-    total_bapp_keseluruhan = len(df_master)
-
-    df_diterima_master = pd.DataFrame()
-    if not df_master.empty and KOLOM_STATUS_BARU in df_master.columns:
-        df_diterima_master = df_master[
-            df_master[KOLOM_STATUS_BARU].astype(str).str.strip().str.upper() == STATUS_DITERIMA
-        ]
-    total_bapp = len(df_diterima_master)
-    persen_diterima_keseluruhan = (total_bapp / total_bapp_keseluruhan * 100) if total_bapp_keseluruhan else 0
-
-    hari_ini_str = datetime.now().strftime("%d/%m/%Y")
-    bapp_hari_ini_df = pd.DataFrame()
-    if not df_master.empty and KOLOM_WAKTU_BARU in df_master.columns:
-        bapp_hari_ini_df = df_master[df_master[KOLOM_WAKTU_BARU].astype(str).str.startswith(hari_ini_str)]
-    total_hari_ini = len(bapp_hari_ini_df)
-
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        render_metric_card("Total Penerimaan", total_penerimaan, "📥")
-    with c2:
-        render_metric_card(
-            "Total BAPP Diterima",
-            f"{total_bapp:,}".replace(",", ".") + f" ({persen_diterima_keseluruhan:.1f}%)",
-            "📦",
-        )
-    with c3:
-        render_metric_card("Penerimaan Hari Ini", f"{total_hari_ini} BAPP", "📅")
-    st.caption(f"Persentase dihitung dari total {total_bapp_keseluruhan:,} BAPP di data master.".replace(",", "."))
-
-    st.markdown("")
-    st.markdown("#### Penerimaan per Direktorat")
-    st.caption("Belum Discan = belum pernah di-scan sama sekali di aplikasi ini.")
-    if df_master.empty or "Direktorat" not in df_master.columns:
-        st.info("Belum ada data untuk breakdown per Direktorat.")
-    else:
-        def _status_bucket(v):
-            v = str(v).strip().upper()
-            if v == STATUS_OPEN:
-                return "OPEN"
-            if v == STATUS_DITERIMA:
-                return "DITERIMA"
-            return "Belum Discan"
-
-        df_pivot_src = df_master.copy()
-        if KOLOM_STATUS_BARU in df_pivot_src.columns:
-            df_pivot_src["_status_bucket"] = df_pivot_src[KOLOM_STATUS_BARU].apply(_status_bucket)
-        else:
-            df_pivot_src["_status_bucket"] = "Belum Discan"
-
-        pivot = df_pivot_src.groupby(["Direktorat", "_status_bucket"]).size().unstack(fill_value=0)
-        for kolom in ["Belum Discan", "OPEN", "DITERIMA"]:
-            if kolom not in pivot.columns:
-                pivot[kolom] = 0
-        pivot = pivot[["Belum Discan", "OPEN", "DITERIMA"]]
-        pivot["Grand Total"] = pivot.sum(axis=1)
-        pivot = pivot.sort_index()
-
-        baris_total = pivot.sum(axis=0)
-        baris_total.name = "Grand Total"
-        pivot = pd.concat([pivot, baris_total.to_frame().T])
-
-        pivot = pivot.reset_index().rename(columns={"index": "Direktorat"})
-        for kolom in ["Belum Discan", "OPEN", "DITERIMA", "Grand Total"]:
-            pivot[kolom] = pivot[kolom].astype(int)
-
-        st.dataframe(pivot, use_container_width=True, hide_index=True)
-
-    st.markdown("")
-    col_terbaru, col_ringkasan = st.columns([1.4, 1])
-
-    with col_terbaru:
-        st.markdown("#### Penerimaan Terbaru")
-        if df_riwayat.empty:
-            st.info("Belum ada penerimaan.")
-        else:
-            lebar_terbaru = [1.2, 1.1, 0.8, 0.8, 1, 0.5]
-            judul_terbaru = ["Nomor Penerimaan", "Pengirim", "Direktorat", "Jumlah BAPP", "Status", ""]
-            for kolom, teks in zip(st.columns(lebar_terbaru), judul_terbaru):
-                kolom.markdown(f"**{teks}**")
-            for _, baris in df_riwayat.head(5).iterrows():
-                c1, c2, c3, c4, c5, c6 = st.columns(lebar_terbaru)
-                c1.write(baris["Nomor Penerimaan"])
-                c2.write(baris.get("Pengirim") or "-")
-                c3.markdown(render_badge(baris["Direktorat"], "biru"), unsafe_allow_html=True)
-                c4.write(int(baris["Jumlah BAPP"]))
-                if baris.get("Status") == STATUS_OPEN:
-                    c5.markdown(render_badge("🟡 OPEN", "kuning"), unsafe_allow_html=True)
-                else:
-                    c5.markdown(render_badge("🟢 DITERIMA", "hijau"), unsafe_allow_html=True)
-                if c6.button("👁", key=f"terbaru_{baris['Nomor Penerimaan']}"):
-                    st.session_state.halaman = "detail"
-                    st.session_state.detail_nomor = baris["Nomor Penerimaan"]
-                    st.rerun()
-            if st.button("Lihat Semua →"):
-                st.session_state.halaman = "daftar"
-                st.rerun()
-
-    with col_ringkasan:
-        st.markdown("#### Ringkasan Hari Ini")
-        render_metric_card("Total Hari Ini", f"{total_hari_ini} BAPP", "📦")
-        st.markdown("")
-        if not bapp_hari_ini_df.empty and "Direktorat" in bapp_hari_ini_df.columns:
-            rekap_hari_ini = (
-                bapp_hari_ini_df.groupby("Direktorat").size()
-                .reset_index(name="Jumlah").sort_values("Jumlah", ascending=False)
-            )
-            for _, baris in rekap_hari_ini.iterrows():
-                st.markdown(f"{baris['Direktorat']} — **{baris['Jumlah']} BAPP**")
-        else:
-            st.caption("Belum ada aktivitas hari ini.")
-
-
-# =====================================================================
-# 12. HALAMAN: DAFTAR PENERIMAAN BAPP
-# =====================================================================
-
-elif st.session_state.halaman == "daftar":
+if st.session_state.halaman == "daftar":
     c_judul, c_tombol = st.columns([5, 2])
     with c_judul:
         st.title("Daftar Penerimaan BAPP")
@@ -2021,7 +1865,7 @@ elif st.session_state.halaman == "daftar":
 
 
 # =====================================================================
-# 13. HALAMAN: SCAN BAPP (setelah popup Buat Penerimaan Baru)
+# 12. HALAMAN: SCAN BAPP (setelah popup Buat Penerimaan Baru)
 # =====================================================================
 
 elif st.session_state.halaman == "form_baru":
@@ -2100,7 +1944,7 @@ elif st.session_state.halaman == "form_baru":
 
 
 # =====================================================================
-# 14. HALAMAN: DETAIL PENERIMAAN
+# 13. HALAMAN: DETAIL PENERIMAAN
 # =====================================================================
 
 elif st.session_state.halaman == "detail":
@@ -2162,36 +2006,7 @@ elif st.session_state.halaman == "detail":
 
 
 # =====================================================================
-# 15. HALAMAN: LAPORAN
-# =====================================================================
-
-elif st.session_state.halaman == "laporan":
-    st.title("Laporan")
-    st.caption("Rekap seluruh penerimaan BAPP")
-
-    df_riwayat = get_riwayat()
-    if df_riwayat.empty:
-        st.info("Belum ada data penerimaan untuk dilaporkan.")
-    else:
-        st.markdown("#### Ringkasan per Direktorat")
-        ringkas = (
-            df_riwayat.groupby("Direktorat")["Jumlah BAPP"].sum()
-            .reset_index().sort_values("Jumlah BAPP", ascending=False)
-        )
-        st.dataframe(ringkas, use_container_width=True, hide_index=True)
-
-        st.markdown("#### Semua Penerimaan")
-        st.dataframe(df_riwayat, use_container_width=True, hide_index=True)
-
-        csv_bytes = df_riwayat.to_csv(index=False).encode("utf-8-sig")
-        st.download_button(
-            "⬇️ Unduh Laporan (CSV)", data=csv_bytes,
-            file_name="laporan_penerimaan_bapp.csv", mime="text/csv",
-        )
-
-
-# =====================================================================
-# 16. HALAMAN: PENGATURAN
+# 14. HALAMAN: PENGATURAN
 # =====================================================================
 
 elif st.session_state.halaman == "pengaturan":
