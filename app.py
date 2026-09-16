@@ -793,156 +793,150 @@ def buat_sel_barcode(nilai, style_teks=None):
 # =====================================================================
 
 def buat_pdf_penerimaan(info, tabel_df):
+    """
+    Membuat PDF Bukti Penerimaan BAPP.
 
+    Layout:
+    - Portrait 24 x 28 cm
+    - Maksimal 40 BAPP per lembar
+    - Layout dibuat lebih lega seperti format referensi
+    - Tidak menggunakan PageBreak yang dapat menyebabkan halaman kosong
+    - Tanda tangan hanya di halaman terakhir
+    """
     buffer = io.BytesIO()
 
-    # ---------------------------------------------------------------
-    # UKURAN KERTAS DAN MARGIN
-    # ---------------------------------------------------------------
+    # ================================================================
+    # UKURAN KERTAS
+    # ================================================================
+    PAGE_W, PAGE_H = KERTAS_PRINT
 
-    margin = 1 * cm
-
-    lebar_isi = KERTAS_PRINT[0] - 2 * margin
+    # Margin dibuat cukup lega agar hasil mirip format referensi.
+    margin_left = 1.25 * cm
+    margin_right = 1.25 * cm
+    margin_top = 0.85 * cm
+    margin_bottom = 0.9 * cm
 
     doc = SimpleDocTemplate(
         buffer,
         pagesize=KERTAS_PRINT,
-
-        topMargin=1 * cm,
-        bottomMargin=1.3 * cm,
-        leftMargin=margin,
-        rightMargin=margin,
+        topMargin=margin_top,
+        bottomMargin=margin_bottom,
+        leftMargin=margin_left,
+        rightMargin=margin_right,
+        title="Bukti Penerimaan BAPP",
+        author="PT. PYX SOLUSI TEKNOLOGI",
     )
 
     styles = getSampleStyleSheet()
 
-
-    # ---------------------------------------------------------------
-    # STYLE JUDUL
-    # ---------------------------------------------------------------
-
+    # ================================================================
+    # STYLE
+    # ================================================================
     judul_style = ParagraphStyle(
-        "Judul",
+        "JudulBAPP",
         parent=styles["Title"],
         fontName="Helvetica-Bold",
-        fontSize=13,
-        leading=14,
-        spaceAfter=4,
+        fontSize=12,
+        leading=13,
+        spaceBefore=0,
+        spaceAfter=5,
         alignment=1,
     )
-
-
-    # ---------------------------------------------------------------
-    # STYLE ISI TABEL
-    # ---------------------------------------------------------------
-    # alignment=1  -> tengah horizontal
-    # leading=6     -> jarak antarbaris
-    # spaceBefore=0
-    # spaceAfter=0
 
     sel_style = ParagraphStyle(
-        "Sel",
+        "SelBAPP",
         parent=styles["Normal"],
         fontName="Helvetica",
-        fontSize=6,
-        leading=6,
+        fontSize=5.6,
+        leading=5.8,
         alignment=1,
         spaceBefore=0,
         spaceAfter=0,
     )
-
-
-    # ---------------------------------------------------------------
-    # STYLE HEADER TABEL
-    # ---------------------------------------------------------------
 
     header_sel_style = ParagraphStyle(
-        "HeaderSel",
+        "HeaderBAPP",
         parent=styles["Normal"],
         fontName="Helvetica-Bold",
-        fontSize=7,
-        leading=7,
+        fontSize=6.2,
+        leading=6.2,
         alignment=1,
         spaceBefore=0,
         spaceAfter=0,
-        textColor=colors.HexColor("#111827"),
     )
 
+    info_label_style = ParagraphStyle(
+        "InfoLabelBAPP",
+        parent=styles["Normal"],
+        fontName="Helvetica-Bold",
+        fontSize=8.5,
+        leading=9,
+        alignment=0,
+        spaceBefore=0,
+        spaceAfter=0,
+    )
 
-    # ---------------------------------------------------------------
-    # FUNGSI UNTUK SEMUA ISI CELL
-    # ---------------------------------------------------------------
+    info_value_style = ParagraphStyle(
+        "InfoValueBAPP",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=8.5,
+        leading=9,
+        alignment=0,
+        spaceBefore=0,
+        spaceAfter=0,
+    )
 
     def sel(txt):
-
         nilai = str(txt).strip()
-
         if not nilai:
             nilai = "-"
-
-        return Paragraph(
-            nilai,
-            sel_style
-        )
-
-
-    # ---------------------------------------------------------------
-    # FUNGSI UNTUK HEADER
-    # ---------------------------------------------------------------
+        return Paragraph(nilai, sel_style)
 
     def header_sel(txt):
+        return Paragraph(str(txt), header_sel_style)
 
-        return Paragraph(
-            str(txt),
-            header_sel_style
-        )
+    def info_label(txt):
+        return Paragraph(str(txt), info_label_style)
 
+    def info_value(txt):
+        nilai = str(txt).strip() if txt is not None else "-"
+        if not nilai:
+            nilai = "-"
+        return Paragraph(nilai, info_value_style)
 
-    # ---------------------------------------------------------------
-    # AMBIL TANGGAL
-    # ---------------------------------------------------------------
-
+    # ================================================================
+    # TANGGAL
+    # ================================================================
     tanggal_saja = (
-        info["waktu"].split(" ")[0]
+        str(info.get("waktu", "")).split(" ")[0]
         if info.get("waktu")
         else "-"
     )
 
-
-    # =================================================================
-    # LEBAR KOLOM
-    # =================================================================
+    # ================================================================
+    # LEBAR TABEL
     #
-    # TOTAL = 22 CM (usable width kertas 24cm dengan margin 1cm kiri+kanan)
-    #
-    # Dibuat ulang supaya:
-    # - Barcode Penerimaan tidak terlalu sempit
-    # - Nomor Penerimaan tidak terlalu sempit
-    # - Serial Number tetap cukup
-    # - Nama Koordinator cukup
-    #
-    # =================================================================
-
+    # Total = 21.5 cm.
+    # Dibuat sedikit lebih kecil dari area maksimum supaya visual
+    # lebih mirip foto referensi dan tidak terlalu melebar.
+    # ================================================================
     lebar_kolom = [
-        0.8 * cm,   # 1. No
-        2.5 * cm,   # 2. Nomor Transaksi
-        1.6 * cm,   # 3. NPSN
-        3.5 * cm,   # 4. Nama Sekolah
-        1.7 * cm,   # 5. Tanggal BAPP
-        2.1 * cm,   # 6. Barcode Penerimaan
-        2.0 * cm,   # 7. Nomor Penerimaan 1
-        1.3 * cm,   # 8. Nomor Urut
-        3.5 * cm,   # 9. Serial Number
-        3.0 * cm,   # 10. Nama Koordinator
+        0.65 * cm,   # No
+        2.35 * cm,   # Nomor Transaksi
+        1.35 * cm,   # NPSN
+        3.30 * cm,   # Nama Sekolah
+        1.55 * cm,   # Tanggal BAPP
+        1.90 * cm,   # Barcode Penerimaan
+        1.75 * cm,   # Nomor Penerimaan 1
+        1.15 * cm,   # Nomor Urut
+        3.35 * cm,   # Serial Number
+        4.15 * cm,   # Nama Koordinator
     ]
 
-
-    # =================================================================
-    # FLOW PDF
-    # =================================================================
-
-    flow = []
-
+    # ================================================================
+    # DATA / JUMLAH HALAMAN
+    # ================================================================
     total_baris = len(tabel_df)
 
     total_lembar = max(
@@ -950,23 +944,20 @@ def buat_pdf_penerimaan(info, tabel_df):
         -(-total_baris // BAPP_PER_LEMBAR_PRINT)
     )
 
+    flow = []
 
-    # =================================================================
-    # LOOP PER HALAMAN
-    # =================================================================
-
+    # ================================================================
+    # LOOP HALAMAN
+    # ================================================================
     for lembar in range(total_lembar):
 
-        potongan = tabel_df.iloc[
-            lembar * BAPP_PER_LEMBAR_PRINT:
-            (lembar + 1) * BAPP_PER_LEMBAR_PRINT
-        ]
+        mulai = lembar * BAPP_PER_LEMBAR_PRINT
+        selesai = (lembar + 1) * BAPP_PER_LEMBAR_PRINT
+        potongan = tabel_df.iloc[mulai:selesai]
 
-
-        # -------------------------------------------------------------
+        # ------------------------------------------------------------
         # JUDUL
-        # -------------------------------------------------------------
-
+        # ------------------------------------------------------------
         flow.append(
             Paragraph(
                 "BUKTI PENERIMAAN BAPP",
@@ -974,277 +965,189 @@ def buat_pdf_penerimaan(info, tabel_df):
             )
         )
 
-
-        # =============================================================
-        # BLOK INFO
-        # =============================================================
-
+        # ------------------------------------------------------------
+        # INFO PENERIMAAN
+        # ------------------------------------------------------------
         info_rows = [
-
             [
-                "Nomor Penerimaan",
-                ":",
-                info.get("nomor_penerimaan") or "-",
-
-                "Tanggal",
-                ":",
-                tanggal_saja
+                info_label("Nomor Penerimaan"),
+                info_value(":"),
+                info_value(info.get("nomor_penerimaan") or "-"),
+                info_label("Tanggal"),
+                info_value(":"),
+                info_value(tanggal_saja),
             ],
-
             [
-                "Pengirim",
-                ":",
-                info.get("pengirim") or "-",
-
-                "PIC Penerimaan",
-                ":",
-                info.get("pic") or "-"
+                info_label("Pengirim"),
+                info_value(":"),
+                info_value(info.get("pengirim") or "-"),
+                info_label("PIC Penerimaan"),
+                info_value(":"),
+                info_value(info.get("pic") or "-"),
             ],
-
             [
-                "Direktorat",
-                ":",
-                info.get("direktorat") or "-",
-
-                "Jumlah BAPP",
-                ":",
-                str(info.get("jumlah", ""))
+                info_label("Direktorat"),
+                info_value(":"),
+                info_value(info.get("direktorat") or "-"),
+                info_label("Jumlah BAPP"),
+                info_value(":"),
+                info_value(str(info.get("jumlah", ""))),
             ],
         ]
-
 
         t_info = Table(
             info_rows,
             colWidths=[
-                3.2 * cm,
-                0.4 * cm,
-                7.6 * cm,
-                3.2 * cm,
-                0.4 * cm,
-                7.2 * cm
-            ]
+                3.05 * cm,
+                0.35 * cm,
+                7.35 * cm,
+                3.05 * cm,
+                0.35 * cm,
+                7.35 * cm,
+            ],
+            rowHeights=[
+                0.47 * cm,
+                0.47 * cm,
+                0.47 * cm,
+            ],
         )
-
 
         t_info.setStyle(
             TableStyle([
-
-                ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
-
-                ("FONTSIZE", (0, 0), (-1, -1), 9.5),
-
-                ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
-
-                ("FONTNAME", (3, 0), (3, -1), "Helvetica-Bold"),
-
-                ("TOPPADDING", (0, 0), (-1, -1), 1),
-
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
-
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-
+                ("ALIGN", (1, 0), (1, -1), "CENTER"),
+                ("ALIGN", (4, 0), (4, -1), "CENTER"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 1),
+                ("TOPPADDING", (0, 0), (-1, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
             ])
         )
 
-
         flow.append(t_info)
 
-        flow.append(
-            Spacer(
-                1,
-                0.2 * cm
-            )
-        )
+        # Jarak pendek sebelum tabel.
+        flow.append(Spacer(1, 0.22 * cm))
 
-
-        # =============================================================
+        # ------------------------------------------------------------
         # HEADER TABEL
-        # =============================================================
-
+        # ------------------------------------------------------------
         header_tabel = [
-
             header_sel(t)
-
             for t in [
-
                 "No",
-
                 "Nomor Transaksi",
-
                 "NPSN",
-
                 "Nama Sekolah",
-
                 "Tanggal BAPP",
-
-                "Barcode Penerimaan",
-
-                "Nomor Penerimaan 1",
-
-                "Nomor Urut",
-
+                "Barcode<br/>Penerimaan",
+                "Nomor<br/>Penerimaan 1",
+                "Nomor<br/>Urut",
                 "Serial Number",
-
                 "Nama Koordinator",
             ]
         ]
 
+        data_tabel = [header_tabel]
 
-        data_tabel = [
-            header_tabel
-        ]
-
-
-        # =============================================================
+        # ------------------------------------------------------------
         # ISI TABEL
-        # =============================================================
-        #
-        # PENTING:
-        # SEMUA kolom sekarang menggunakan sel()
-        #
-        # Jadi tidak ada lagi:
-        # str(r["NPSN"])
-        # str(r["Nomor"])
-        # str(r["Tanggal BAPP"])
-        # str(r["Nomor Urut"])
-        #
-        # Semuanya Paragraph -> posisi vertical lebih rapi.
-        # =============================================================
-
+        # ------------------------------------------------------------
         for _, r in potongan.iterrows():
-
             data_tabel.append([
-
-                # 1. No
                 sel(r["Nomor"]),
-
-                # 2. Nomor Transaksi
                 sel(r["Nomor Transaksi"]),
-
-                # 3. NPSN
                 sel(r["NPSN"]),
-
-                # 4. Nama Sekolah
                 sel(r["Nama Sekolah"]),
-
-                # 5. Tanggal BAPP
                 sel(r["Tanggal BAPP"]),
-
-                # 6. Barcode Penerimaan
                 buat_sel_barcode(
                     r["Barcode Penerimaan"],
                     style_teks=sel_style
                 ),
-
-                # 7. Nomor Penerimaan 1
                 sel(r["Nomor Penerimaan Pertama"]),
-
-                # 8. Nomor Urut
                 sel(r["Nomor Urut"]),
-
-                # 9. Serial Number
                 sel(r["Serial Number"]),
-
-                # 10. Nama Koordinator
                 sel(r["Nama Koordinator"]),
             ])
 
-
-        # =============================================================
-        # BUAT TABEL
-        # =============================================================
+        # ------------------------------------------------------------
+        # TABEL
+        #
+        # Tinggi 0.42 cm x 40 = 16.8 cm.
+        # Ini sengaja dibuat cukup kecil agar 40 baris tidak terlempar
+        # ke halaman berikutnya.
+        # ------------------------------------------------------------
+        row_heights = [0.72 * cm] + [
+            0.42 * cm for _ in range(len(potongan))
+        ]
 
         t = Table(
             data_tabel,
             colWidths=lebar_kolom,
+            rowHeights=row_heights,
             repeatRows=1,
-
-            # Membuat tinggi baris isi lebih konsisten
-            rowHeights=[
-                None
-            ] + [
-                0.55 * cm
-                for _ in range(len(potongan))
-            ]
+            splitByRow=1,
+            hAlign="CENTER",
         )
-
-
-        # =============================================================
-        # STYLE TABEL
-        # =============================================================
 
         t.setStyle(
             TableStyle([
-
-                # -----------------------------------------------------
-                # HEADER
-                # -----------------------------------------------------
-
+                # Header
                 (
                     "BACKGROUND",
                     (0, 0),
                     (-1, 0),
                     colors.HexColor("#e5e7eb")
                 ),
+                (
+                    "TEXTCOLOR",
+                    (0, 0),
+                    (-1, 0),
+                    colors.HexColor("#111827")
+                ),
 
-
-                # -----------------------------------------------------
-                # GARIS TABEL
-                # -----------------------------------------------------
-
+                # Grid
                 (
                     "GRID",
                     (0, 0),
                     (-1, -1),
-                    0.5,
+                    0.4,
                     colors.HexColor("#111827")
                 ),
 
-
-                # -----------------------------------------------------
-                # FONT ISI
-                # -----------------------------------------------------
-
+                # Font
                 (
                     "FONTNAME",
                     (0, 1),
                     (-1, -1),
                     "Helvetica"
                 ),
-
                 (
                     "FONTSIZE",
                     (0, 1),
                     (-1, -1),
-                    6
+                    5.6
                 ),
 
-
-                # -----------------------------------------------------
-                # JARAK DALAM CELL
-                # -----------------------------------------------------
-
+                # Padding
                 (
                     "TOPPADDING",
                     (0, 0),
                     (-1, -1),
-                    1
+                    0
                 ),
-
                 (
                     "BOTTOMPADDING",
                     (0, 0),
                     (-1, -1),
-                    1
+                    0
                 ),
-
                 (
                     "LEFTPADDING",
                     (0, 0),
                     (-1, -1),
                     1
                 ),
-
                 (
                     "RIGHTPADDING",
                     (0, 0),
@@ -1252,209 +1155,130 @@ def buat_pdf_penerimaan(info, tabel_df):
                     1
                 ),
 
-
-                # -----------------------------------------------------
-                # SEMUA ISI TENGAH HORIZONTAL
-                # -----------------------------------------------------
-
+                # Alignment
                 (
                     "ALIGN",
                     (0, 0),
                     (-1, -1),
                     "CENTER"
                 ),
-
-
-                # -----------------------------------------------------
-                # SEMUA ISI TENGAH VERTICAL
-                # -----------------------------------------------------
-
                 (
                     "VALIGN",
                     (0, 0),
                     (-1, -1),
                     "MIDDLE"
                 ),
-
             ])
         )
-
 
         flow.append(t)
 
-
-        flow.append(
-            Spacer(
-                1,
-                0.4 * cm
-            )
-        )
-
-
-        # =============================================================
-        # TANDA TANGAN
-        # =============================================================
-
-        pengirim_label = (
-            info.get("pengirim")
-            or "..........................."
-        )
-
-        pic_label = (
-            info.get("pic")
-            or "..........................."
-        )
-
-
-        kolom_kosong = "(" + " " * 20 + ")"
-
-        ttd_rows = [
-
-            [
-                "Pengirim",
-                "",
-                "Tim Sortir",
-                "",
-                "Tim Scan",
-                "",
-                "PIC Penerimaan"
-            ],
-
-            [
-                "", "", "", "", "", "", ""
-            ],
-
-            [
-                "", "", "", "", "", "", ""
-            ],
-
-            [
-                f"({pengirim_label})",
-                "",
-                kolom_kosong,
-                "",
-                kolom_kosong,
-                "",
-                f"({pic_label})"
-            ],
-        ]
-
-
-        t_ttd = Table(
-
-            ttd_rows,
-
-            colWidths=[
-                4.6 * cm,
-                1.2 * cm,
-                4.6 * cm,
-                1.2 * cm,
-                4.6 * cm,
-                1.2 * cm,
-                4.6 * cm,
-            ],
-
-            rowHeights=[
-                0.45 * cm,
-                0.9 * cm,
-                0.15 * cm,
-                0.45 * cm
-            ]
-        )
-
-
-        t_ttd.setStyle(
-            TableStyle([
-
-                (
-                    "FONTNAME",
-                    (0, 0),
-                    (-1, -1),
-                    "Helvetica"
-                ),
-
-                (
-                    "FONTSIZE",
-                    (0, 0),
-                    (-1, -1),
-                    9.5
-                ),
-
-                (
-                    "FONTNAME",
-                    (0, 0),
-                    (0, 0),
-                    "Helvetica-Bold"
-                ),
-
-                (
-                    "FONTNAME",
-                    (2, 0),
-                    (2, 0),
-                    "Helvetica-Bold"
-                ),
-
-                (
-                    "FONTNAME",
-                    (4, 0),
-                    (4, 0),
-                    "Helvetica-Bold"
-                ),
-
-                (
-                    "FONTNAME",
-                    (6, 0),
-                    (6, 0),
-                    "Helvetica-Bold"
-                ),
-
-                (
-                    "ALIGN",
-                    (0, 0),
-                    (-1, -1),
-                    "CENTER"
-                ),
-
-                (
-                    "VALIGN",
-                    (0, 0),
-                    (-1, -1),
-                    "MIDDLE"
-                ),
-
-            ])
-        )
-
-
-        # Tanda tangan cuma ditampilkan di HALAMAN TERAKHIR saja
+        # ------------------------------------------------------------
+        # TANDA TANGAN - HANYA HALAMAN TERAKHIR
+        # ------------------------------------------------------------
         if lembar == total_lembar - 1:
+
+            flow.append(Spacer(1, 0.45 * cm))
+
+            pengirim_label = (
+                info.get("pengirim")
+                or "..........................."
+            )
+
+            pic_label = (
+                info.get("pic")
+                or "..........................."
+            )
+
+            kolom_kosong = "(" + " " * 18 + ")"
+
+            ttd_rows = [
+                [
+                    "Pengirim",
+                    "",
+                    "Tim Sortir",
+                    "",
+                    "Tim Scan",
+                    "",
+                    "PIC Penerimaan"
+                ],
+                [
+                    "", "", "", "", "", "", ""
+                ],
+                [
+                    "", "", "", "", "", "", ""
+                ],
+                [
+                    f"({pengirim_label})",
+                    "",
+                    kolom_kosong,
+                    "",
+                    kolom_kosong,
+                    "",
+                    f"({pic_label})"
+                ],
+            ]
+
+            t_ttd = Table(
+                ttd_rows,
+                colWidths=[
+                    4.6 * cm,
+                    1.0 * cm,
+                    4.6 * cm,
+                    1.0 * cm,
+                    4.6 * cm,
+                    1.0 * cm,
+                    4.6 * cm,
+                ],
+                rowHeights=[
+                    0.4 * cm,
+                    0.65 * cm,
+                    0.2 * cm,
+                    0.4 * cm,
+                ],
+                hAlign="CENTER",
+            )
+
+            t_ttd.setStyle(
+                TableStyle([
+                    ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 8),
+                    ("FONTNAME", (0, 0), (0, 0), "Helvetica-Bold"),
+                    ("FONTNAME", (2, 0), (2, 0), "Helvetica-Bold"),
+                    ("FONTNAME", (4, 0), (4, 0), "Helvetica-Bold"),
+                    ("FONTNAME", (6, 0), (6, 0), "Helvetica-Bold"),
+                    ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                    ("TOPPADDING", (0, 0), (-1, -1), 0),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                ])
+            )
+
             flow.append(t_ttd)
 
-
-        # =============================================================
+        # ------------------------------------------------------------
         # PAGE BREAK
-        # =============================================================
-
+        #
+        # PageBreak hanya diberikan kalau memang masih ada halaman
+        # berikutnya. Karena tabel sekarang dibuat cukup pendek,
+        # tidak akan terjadi split tabel -> PageBreak ganda.
+        # ------------------------------------------------------------
         if lembar < total_lembar - 1:
+            flow.append(PageBreak())
 
-            flow.append(
-                PageBreak()
-            )
-
-
-    # =================================================================
-    # BUILD PDF
-    # =================================================================
-
+    # ================================================================
+    # BUILD
+    # ================================================================
     doc.build(
         flow,
         canvasmaker=NumberedCanvas
     )
 
-
     buffer.seek(0)
-
     return buffer.getvalue()
+
 
 # =====================================================================
 # 7. KOMPONEN TAMPILAN KECIL (card, badge)
