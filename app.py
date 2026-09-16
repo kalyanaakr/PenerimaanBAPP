@@ -960,15 +960,18 @@ def buat_pdf_penerimaan(info, tabel_df):
     # lebarnya dibagi ulang ke kolom lain -- termasuk Tanggal BAPP yang
     # sekarang lebih lebar karena menampilkan nama hari juga.
     # ================================================================
+    # Lebar total = 18,5 cm, pas dengan area cetak A4
+    # (A4 21 cm dikurangi margin kiri dan kanan masing-masing 1,25 cm).
+    # Jangan melebihi 18,5 cm agar tabel tidak menempel/keluar margin.
     lebar_kolom = [
-        0.65 * cm,   # No
-        3.50 * cm,   # Nomor Transaksi
-        1.35 * cm,   # NPSN
-        4.80 * cm,   # Nama Sekolah (diperlebar agar nama sekolah tidak terlalu banyak terpotong)
-        2.55 * cm,   # Tanggal BAPP (+ nama hari)
-        1.85 * cm,   # Barcode Penerimaan
-        1.75 * cm,   # Nomor Penerimaan 1
-        4.35 * cm,   # Serial Number
+        0.60 * cm,   # No
+        3.00 * cm,   # Nomor Transaksi
+        1.20 * cm,   # NPSN
+        4.00 * cm,   # Nama Sekolah
+        2.30 * cm,   # Tanggal BAPP (+ nama hari)
+        1.60 * cm,   # Barcode Penerimaan
+        1.60 * cm,   # Nomor Penerimaan 1
+        4.20 * cm,   # Serial Number
     ]
 
     # ================================================================
