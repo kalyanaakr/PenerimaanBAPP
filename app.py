@@ -30,7 +30,6 @@ import gspread
 from gspread.utils import rowcol_to_a1
 from google.oauth2.service_account import Credentials
 
-from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -93,8 +92,9 @@ DAFTAR_DIREKTORAT_DEFAULT = ["SD", "SMP", "SMA", "SMK"]
 UKURAN_HALAMAN_DAFTAR = 10
 BAPP_PER_LEMBAR_PRINT = 40
 
-# Ukuran kertas untuk print Penerimaan BAPP: A4 (21 x 29.7 cm), portrait.
-KERTAS_PRINT = A4
+# Ukuran kertas custom untuk print Penerimaan BAPP: 24 cm x 28 cm, portrait
+# (kertas fisik yang benar-benar dipakai, bukan A4/Legal).
+KERTAS_PRINT = (24 * cm, 28 * cm)
 
 st.set_page_config(page_title="Sistem Penerimaan BAPP", page_icon="📦", layout="wide")
 
@@ -913,7 +913,7 @@ def buat_pdf_penerimaan(info, tabel_df):
     # LEBAR KOLOM
     # =================================================================
     #
-    # TOTAL = 19 CM (usable width A4 dengan margin 1cm kiri+kanan)
+    # TOTAL = 22 CM (usable width kertas 24cm dengan margin 1cm kiri+kanan)
     #
     # Dibuat ulang supaya:
     # - Barcode Penerimaan tidak terlalu sempit
@@ -924,16 +924,16 @@ def buat_pdf_penerimaan(info, tabel_df):
     # =================================================================
 
     lebar_kolom = [
-        0.7 * cm,   # 1. No
-        2.2 * cm,   # 2. Nomor Transaksi
-        1.4 * cm,   # 3. NPSN
-        3.0 * cm,   # 4. Nama Sekolah
-        1.5 * cm,   # 5. Tanggal BAPP
-        1.8 * cm,   # 6. Barcode Penerimaan
-        1.7 * cm,   # 7. Nomor Penerimaan 1
-        1.1 * cm,   # 8. Nomor Urut
-        3.0 * cm,   # 9. Serial Number
-        2.6 * cm,   # 10. Nama Koordinator
+        0.8 * cm,   # 1. No
+        2.5 * cm,   # 2. Nomor Transaksi
+        1.6 * cm,   # 3. NPSN
+        3.5 * cm,   # 4. Nama Sekolah
+        1.7 * cm,   # 5. Tanggal BAPP
+        2.1 * cm,   # 6. Barcode Penerimaan
+        2.0 * cm,   # 7. Nomor Penerimaan 1
+        1.3 * cm,   # 8. Nomor Urut
+        3.5 * cm,   # 9. Serial Number
+        3.0 * cm,   # 10. Nama Koordinator
     ]
 
 
@@ -1016,12 +1016,12 @@ def buat_pdf_penerimaan(info, tabel_df):
         t_info = Table(
             info_rows,
             colWidths=[
-                2.8 * cm,
+                3.2 * cm,
                 0.4 * cm,
-                6.4 * cm,
-                2.8 * cm,
+                7.6 * cm,
+                3.2 * cm,
                 0.4 * cm,
-                6.2 * cm
+                7.2 * cm
             ]
         )
 
@@ -1345,13 +1345,13 @@ def buat_pdf_penerimaan(info, tabel_df):
             ttd_rows,
 
             colWidths=[
-                4.0 * cm,
-                1.0 * cm,
-                4.0 * cm,
-                1.0 * cm,
-                4.0 * cm,
-                1.0 * cm,
-                4.0 * cm,
+                4.6 * cm,
+                1.2 * cm,
+                4.6 * cm,
+                1.2 * cm,
+                4.6 * cm,
+                1.2 * cm,
+                4.6 * cm,
             ],
 
             rowHeights=[
