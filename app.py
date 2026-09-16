@@ -31,6 +31,7 @@ from gspread.utils import rowcol_to_a1
 from google.oauth2.service_account import Credentials
 
 from reportlab.lib.units import cm
+from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
@@ -92,9 +93,8 @@ DAFTAR_DIREKTORAT_DEFAULT = ["SD", "SMP", "SMA", "SMK"]
 UKURAN_HALAMAN_DAFTAR = 10
 BAPP_PER_LEMBAR_PRINT = 40
 
-# Ukuran kertas custom untuk print Penerimaan BAPP: 24 cm x 28 cm, portrait
-# (kertas fisik yang benar-benar dipakai, bukan A4/Legal).
-KERTAS_PRINT = (24 * cm, 28 * cm)
+# Ukuran kertas print Penerimaan BAPP: A4 portrait
+KERTAS_PRINT = A4
 
 st.set_page_config(page_title="Sistem Penerimaan BAPP", page_icon="📦", layout="wide")
 
@@ -821,7 +821,7 @@ def buat_pdf_penerimaan(info, tabel_df):
     Membuat PDF Bukti Penerimaan BAPP.
 
     Layout:
-    - Portrait 24 x 28 cm
+    - Portrait A4 (21 x 29,7 cm)
     - Maksimal 40 BAPP per lembar
     - Layout dibuat lebih lega seperti format referensi
     - Tidak menggunakan PageBreak yang dapat menyebabkan halaman kosong
