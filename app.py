@@ -540,7 +540,14 @@ def get_riwayat():
     tanggal_saja = ringkasan["Waktu"].astype(str).str.split(" ").str[0]
     ringkasan["_waktu_dt"] = pd.to_datetime(tanggal_saja, format="%d/%m/%Y", errors="coerce")
     ringkasan["Tanggal"] = ringkasan["_waktu_dt"].dt.strftime("%d/%m/%Y")
-    ringkasan = ringkasan.sort_values("_waktu_dt", ascending=False).drop(columns=["_waktu_dt", "Waktu"])
+    ringkasan = (
+        ringkasan.sort_values(
+            ["_waktu_dt", "Nomor Penerimaan"],
+            ascending=[False, False],
+            na_position="last",
+        )
+        .drop(columns=["_waktu_dt", "Waktu"])
+    )
 
     for kolom in ["Pengirim", "PIC"]:
         if kolom not in ringkasan.columns:
@@ -771,6 +778,23 @@ class NumberedCanvas(pdfcanvas.Canvas):
 # FORMAT ISI CELL TABEL
 # =====================================================================
 
+NAMA_HARI_ID = {
+    0: "Senin", 1: "Selasa", 2: "Rabu", 3: "Kamis",
+    4: "Jumat", 5: "Sabtu", 6: "Minggu",
+}
+
+
+def tambah_nama_hari(tanggal_str):
+    """Menambahkan nama hari Indonesia di depan tanggal format DD/MM/YYYY,
+    mis. '15/09/2026' -> 'Selasa, 15/09/2026'. Kalau formatnya tidak
+    dikenali, kembalikan tanggal apa adanya (bukan error)."""
+    try:
+        tgl = datetime.strptime(str(tanggal_str).strip(), "%d/%m/%Y")
+        return f"{NAMA_HARI_ID[tgl.weekday()]}, {tanggal_str}"
+    except Exception:
+        return tanggal_str
+
+
 def buat_sel_barcode(nilai, style_teks=None):
     """
     Barcode Penerimaan ditampilkan sebagai TEKS biasa,
@@ -802,6 +826,9 @@ def buat_pdf_penerimaan(info, tabel_df):
     - Layout dibuat lebih lega seperti format referensi
     - Tidak menggunakan PageBreak yang dapat menyebabkan halaman kosong
     - Tanda tangan hanya di halaman terakhir
+    - Ringkasan bundle (Nomor Penerimaan Pertama) hanya di halaman terakhir,
+      dihitung dari SELURUH BAPP di penerimaan ini -- supaya Tim Sortir tahu
+      bundle apa saja yang perlu dicari.
     """
     buffer = io.BytesIO()
 
@@ -823,7 +850,7 @@ def buat_pdf_penerimaan(info, tabel_df):
         bottomMargin=margin_bottom,
         leftMargin=margin_left,
         rightMargin=margin_right,
-        title="Bukti Penerimaan BAPP",
+        title="BUKTI PENERIMAAN BAPP TAHAP 2",
         author="PT. PYX SOLUSI TEKNOLOGI",
     )
 
@@ -836,10 +863,10 @@ def buat_pdf_penerimaan(info, tabel_df):
         "JudulBAPP",
         parent=styles["Title"],
         fontName="Helvetica-Bold",
-        fontSize=12,
-        leading=13,
+        fontSize=14,
+        leading=15,
         spaceBefore=0,
-        spaceAfter=5,
+        spaceAfter=6,
         alignment=1,
     )
 
@@ -847,8 +874,8 @@ def buat_pdf_penerimaan(info, tabel_df):
         "SelBAPP",
         parent=styles["Normal"],
         fontName="Helvetica",
-        fontSize=5.6,
-        leading=5.8,
+        fontSize=7.5,
+        leading=7.8,
         alignment=1,
         spaceBefore=0,
         spaceAfter=0,
@@ -858,8 +885,8 @@ def buat_pdf_penerimaan(info, tabel_df):
         "HeaderBAPP",
         parent=styles["Normal"],
         fontName="Helvetica-Bold",
-        fontSize=6.2,
-        leading=6.2,
+        fontSize=8,
+        leading=8.2,
         alignment=1,
         spaceBefore=0,
         spaceAfter=0,
@@ -869,8 +896,8 @@ def buat_pdf_penerimaan(info, tabel_df):
         "InfoLabelBAPP",
         parent=styles["Normal"],
         fontName="Helvetica-Bold",
-        fontSize=8.5,
-        leading=9,
+        fontSize=10,
+        leading=10.5,
         alignment=0,
         spaceBefore=0,
         spaceAfter=0,
@@ -880,11 +907,22 @@ def buat_pdf_penerimaan(info, tabel_df):
         "InfoValueBAPP",
         parent=styles["Normal"],
         fontName="Helvetica",
-        fontSize=8.5,
-        leading=9,
+        fontSize=10,
+        leading=10.5,
         alignment=0,
         spaceBefore=0,
         spaceAfter=0,
+    )
+
+    judul_ringkasan_style = ParagraphStyle(
+        "JudulRingkasanBAPP",
+        parent=styles["Normal"],
+        fontName="Helvetica-Bold",
+        fontSize=10.5,
+        leading=11.5,
+        spaceBefore=0,
+        spaceAfter=4,
+        alignment=1,
     )
 
     def sel(txt):
@@ -918,21 +956,35 @@ def buat_pdf_penerimaan(info, tabel_df):
     # LEBAR TABEL
     #
     # Total = 21.5 cm.
-    # Dibuat sedikit lebih kecil dari area maksimum supaya visual
-    # lebih mirip foto referensi dan tidak terlalu melebar.
+    # Kolom Nomor Urut & Nama Koordinator dihapus (tidak dicetak lagi),
+    # lebarnya dibagi ulang ke kolom lain -- termasuk Tanggal BAPP yang
+    # sekarang lebih lebar karena menampilkan nama hari juga.
     # ================================================================
     lebar_kolom = [
-        0.65 * cm,   # No
-        2.35 * cm,   # Nomor Transaksi
-        1.35 * cm,   # NPSN
-        3.30 * cm,   # Nama Sekolah
-        1.55 * cm,   # Tanggal BAPP
-        1.90 * cm,   # Barcode Penerimaan
-        1.75 * cm,   # Nomor Penerimaan 1
-        1.15 * cm,   # Nomor Urut
-        3.35 * cm,   # Serial Number
-        4.15 * cm,   # Nama Koordinator
+        0.8 * cm,    # No
+        3.0 * cm,    # Nomor Transaksi
+        1.6 * cm,    # NPSN
+        4.5 * cm,    # Nama Sekolah
+        3.1 * cm,    # Tanggal BAPP (+ nama hari)
+        2.2 * cm,    # Barcode Penerimaan
+        2.0 * cm,    # Nomor Penerimaan 1
+        4.3 * cm,    # Serial Number
     ]
+
+    # ================================================================
+    # RINGKASAN BUNDLE ASAL (dihitung SEKALI dari seluruh tabel_df,
+    # dipakai nanti di halaman terakhir saja)
+    # ================================================================
+    if "Nomor Penerimaan Pertama" in tabel_df.columns:
+        ringkasan_bundle = (
+            tabel_df["Nomor Penerimaan Pertama"]
+            .value_counts()
+            .reset_index()
+        )
+        ringkasan_bundle.columns = ["Nomor Penerimaan Pertama", "Jumlah BAPP"]
+        ringkasan_bundle = ringkasan_bundle.sort_values("Nomor Penerimaan Pertama")
+    else:
+        ringkasan_bundle = pd.DataFrame(columns=["Nomor Penerimaan Pertama", "Jumlah BAPP"])
 
     # ================================================================
     # DATA / JUMLAH HALAMAN
@@ -960,7 +1012,7 @@ def buat_pdf_penerimaan(info, tabel_df):
         # ------------------------------------------------------------
         flow.append(
             Paragraph(
-                "BUKTI PENERIMAAN BAPP",
+                "BUKTI PENERIMAAN BAPP TAHAP 2",
                 judul_style
             )
         )
@@ -998,17 +1050,17 @@ def buat_pdf_penerimaan(info, tabel_df):
         t_info = Table(
             info_rows,
             colWidths=[
-                3.05 * cm,
-                0.35 * cm,
-                7.35 * cm,
-                3.05 * cm,
-                0.35 * cm,
-                7.35 * cm,
+                2.35 * cm,
+                0.25 * cm,
+                6.35 * cm,
+                2.35 * cm,
+                0.25 * cm,
+                6.35 * cm,
             ],
             rowHeights=[
-                0.47 * cm,
-                0.47 * cm,
-                0.47 * cm,
+                0.62 * cm,
+                0.62 * cm,
+                0.62 * cm,
             ],
         )
 
@@ -1027,7 +1079,7 @@ def buat_pdf_penerimaan(info, tabel_df):
         flow.append(t_info)
 
         # Jarak pendek sebelum tabel.
-        flow.append(Spacer(1, 0.22 * cm))
+        flow.append(Spacer(1, 0.42 * cm))
 
         # ------------------------------------------------------------
         # HEADER TABEL
@@ -1042,9 +1094,7 @@ def buat_pdf_penerimaan(info, tabel_df):
                 "Tanggal BAPP",
                 "Barcode<br/>Penerimaan",
                 "Nomor<br/>Penerimaan 1",
-                "Nomor<br/>Urut",
                 "Serial Number",
-                "Nama Koordinator",
             ]
         ]
 
@@ -1059,26 +1109,23 @@ def buat_pdf_penerimaan(info, tabel_df):
                 sel(r["Nomor Transaksi"]),
                 sel(r["NPSN"]),
                 sel(r["Nama Sekolah"]),
-                sel(r["Tanggal BAPP"]),
+                sel(tambah_nama_hari(r["Tanggal BAPP"])),
                 buat_sel_barcode(
                     r["Barcode Penerimaan"],
                     style_teks=sel_style
                 ),
                 sel(r["Nomor Penerimaan Pertama"]),
-                sel(r["Nomor Urut"]),
                 sel(r["Serial Number"]),
-                sel(r["Nama Koordinator"]),
             ])
 
         # ------------------------------------------------------------
         # TABEL
         #
-        # Tinggi 0.42 cm x 40 = 16.8 cm.
-        # Ini sengaja dibuat cukup kecil agar 40 baris tidak terlempar
-        # ke halaman berikutnya.
+        # Tinggi 0.55 cm x 40 = 22 cm (disesuaikan naik karena font
+        # tabel diperbesar dari 5.6pt ke 7.5pt).
         # ------------------------------------------------------------
-        row_heights = [0.72 * cm] + [
-            0.42 * cm for _ in range(len(potongan))
+        row_heights = [0.85 * cm] + [
+            0.55 * cm for _ in range(len(potongan))
         ]
 
         t = Table(
@@ -1126,7 +1173,7 @@ def buat_pdf_penerimaan(info, tabel_df):
                     "FONTSIZE",
                     (0, 1),
                     (-1, -1),
-                    5.6
+                    7.5
                 ),
 
                 # Padding
@@ -1178,7 +1225,7 @@ def buat_pdf_penerimaan(info, tabel_df):
         # ------------------------------------------------------------
         if lembar == total_lembar - 1:
 
-            flow.append(Spacer(1, 0.45 * cm))
+            flow.append(Spacer(1, 1.0 * cm))
 
             pengirim_label = (
                 info.get("pengirim")
@@ -1231,10 +1278,10 @@ def buat_pdf_penerimaan(info, tabel_df):
                     4.6 * cm,
                 ],
                 rowHeights=[
-                    0.4 * cm,
-                    0.65 * cm,
-                    0.2 * cm,
-                    0.4 * cm,
+                    0.55 * cm,
+                    1.8 * cm,
+                    0.45 * cm,
+                    0.55 * cm,
                 ],
                 hAlign="CENTER",
             )
@@ -1242,8 +1289,7 @@ def buat_pdf_penerimaan(info, tabel_df):
             t_ttd.setStyle(
                 TableStyle([
                     ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
-                    ("FONTSIZE", (0, 0), (-1, -1), 8),
-                    ("FONTNAME", (0, 0), (0, 0), "Helvetica-Bold"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 9.5),
                     ("FONTNAME", (2, 0), (2, 0), "Helvetica-Bold"),
                     ("FONTNAME", (4, 0), (4, 0), "Helvetica-Bold"),
                     ("FONTNAME", (6, 0), (6, 0), "Helvetica-Bold"),
@@ -1257,6 +1303,79 @@ def buat_pdf_penerimaan(info, tabel_df):
             )
 
             flow.append(t_ttd)
+            flow.append(Spacer(1, 0.35 * cm))
+
+        # ------------------------------------------------------------
+        # RINGKASAN BUNDLE ASAL (Nomor Penerimaan Pertama) -- HANYA
+        # HALAMAN TERAKHIR. Dihitung dari SELURUH BAPP di penerimaan
+        # ini (bukan cuma yang ada di halaman terakhir), supaya Tim
+        # Sortir tahu bundle apa saja yang perlu dicari & berapa
+        # banyak BAPP dari masing-masing bundle itu.
+        # ------------------------------------------------------------
+        if lembar == total_lembar - 1 and not ringkasan_bundle.empty:
+
+            flow.append(PageBreak())
+            flow.append(Spacer(1, 0.35 * cm))
+            flow.append(
+                Paragraph(
+                    "Ringkasan Bundle Asal (untuk Tim Sortir)",
+                    judul_ringkasan_style
+                )
+            )
+            flow.append(Spacer(1, 0.45 * cm))
+
+            # Informasi penerimaan pada halaman ringkasan bundle
+            info_ringkasan_rows = [
+                [info_label("Nomor Penerimaan"), info_value(info.get("nomor_penerimaan") or "-"), info_label("Tanggal"), info_value(tanggal_saja)],
+                [info_label("Pengirim"), info_value(info.get("pengirim") or "-"), info_label("PIC Penerimaan"), info_value(info.get("pic") or "-")],
+                [info_label("Direktorat"), info_value(info.get("direktorat") or "-"), info_label("Jumlah BAPP"), info_value(str(info.get("jumlah", "")))],
+            ]
+            flow.append(
+                Table(
+                    info_ringkasan_rows,
+                    colWidths=[3.0 * cm, 6.0 * cm, 3.0 * cm, 6.0 * cm],
+                    rowHeights=[0.85 * cm, 0.85 * cm, 0.85 * cm],
+                    hAlign="CENTER",
+                    style=TableStyle([
+                        ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                        ("TOPPADDING", (0, 0), (-1, -1), 5),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                    ])
+                )
+            )
+            flow.append(Spacer(1, 0.55 * cm))
+
+            ringkasan_rows = [["Nomor Penerimaan Pertama", "Jumlah BAPP"]]
+            for _, r in ringkasan_bundle.iterrows():
+                ringkasan_rows.append([
+                    str(r["Nomor Penerimaan Pertama"]),
+                    str(r["Jumlah BAPP"]),
+                ])
+
+            t_ringkasan = Table(
+                ringkasan_rows,
+                colWidths=[6 * cm, 3 * cm],
+                hAlign="CENTER",
+            )
+
+            t_ringkasan.setStyle(
+                TableStyle([
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e5e7eb")),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 9.5),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                    ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ])
+            )
+
+            flow.append(t_ringkasan)
+
 
         # ------------------------------------------------------------
         # PAGE BREAK
