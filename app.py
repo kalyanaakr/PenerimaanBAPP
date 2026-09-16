@@ -91,7 +91,7 @@ STATUS_DITERIMA = "DITERIMA"
 
 DAFTAR_DIREKTORAT_DEFAULT = ["SD", "SMP", "SMA", "SMK"]
 UKURAN_HALAMAN_DAFTAR = 10
-BAPP_PER_LEMBAR_PRINT = 40
+BAPP_PER_LEMBAR_PRINT = 30
 
 # Ukuran kertas print Penerimaan BAPP: A4 portrait
 KERTAS_PRINT = A4
@@ -961,14 +961,14 @@ def buat_pdf_penerimaan(info, tabel_df):
     # sekarang lebih lebar karena menampilkan nama hari juga.
     # ================================================================
     lebar_kolom = [
-        0.8 * cm,    # No
-        3.0 * cm,    # Nomor Transaksi
-        1.6 * cm,    # NPSN
-        4.5 * cm,    # Nama Sekolah
-        3.1 * cm,    # Tanggal BAPP (+ nama hari)
-        2.2 * cm,    # Barcode Penerimaan
-        2.0 * cm,    # Nomor Penerimaan 1
-        4.3 * cm,    # Serial Number
+        0.65 * cm,   # No
+        2.45 * cm,   # Nomor Transaksi
+        1.35 * cm,   # NPSN
+        3.55 * cm,   # Nama Sekolah
+        2.55 * cm,   # Tanggal BAPP (+ nama hari)
+        1.85 * cm,   # Barcode Penerimaan
+        1.75 * cm,   # Nomor Penerimaan 1
+        4.35 * cm,   # Serial Number
     ]
 
     # ================================================================
@@ -1269,13 +1269,13 @@ def buat_pdf_penerimaan(info, tabel_df):
             t_ttd = Table(
                 ttd_rows,
                 colWidths=[
-                    4.6 * cm,
-                    1.0 * cm,
-                    4.6 * cm,
-                    1.0 * cm,
-                    4.6 * cm,
-                    1.0 * cm,
-                    4.6 * cm,
+                    3.95 * cm,
+                    0.65 * cm,
+                    3.95 * cm,
+                    0.65 * cm,
+                    3.95 * cm,
+                    0.65 * cm,
+                    3.95 * cm,
                 ],
                 rowHeights=[
                     0.55 * cm,
