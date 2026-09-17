@@ -1877,7 +1877,7 @@ if st.session_state.halaman == "daftar":
 
     # Jika tombol Print pada daftar diklik, tampilkan kontrol PDF langsung
     # di halaman daftar tanpa popup/modal dan tanpa tombol Tutup.
-    if st.session_state.get("print_target"):
+    if False and st.session_state.get("print_target"):
         nomor_print = st.session_state.print_target
         tabel_print, info_print = get_detail_penerimaan(nomor_print)
         if info_print and info_print.get("status") == STATUS_DITERIMA:
@@ -2002,9 +2002,17 @@ if st.session_state.halaman == "daftar":
                         st.error(pesan_error)
             else:
                 c8.markdown(render_badge("🟢 DITERIMA", "hijau"), unsafe_allow_html=True)
-                if c9.button("🖨️", key=f"print_{baris['Nomor Penerimaan']}", help="Print BAPP"):
-                    st.session_state.print_target = baris["Nomor Penerimaan"]
-                    st.rerun()
+                # Print langsung dari daftar tanpa panel/popup Streamlit.
+                nomor_daftar = baris["Nomor Penerimaan"]
+                tabel_daftar, info_daftar = get_detail_penerimaan(nomor_daftar)
+                if info_daftar:
+                    with c9:
+                        pdf_daftar = buat_pdf_penerimaan(info_daftar, tabel_daftar)
+                        pdf_b64_daftar = base64.b64encode(pdf_daftar).decode("utf-8")
+                        st.markdown(
+                            f"""<a href=\"data:application/pdf;base64,{pdf_b64_daftar}\" target=\"_blank\" rel=\"noopener\" style=\"display:flex;align-items:center;justify-content:center;text-decoration:none;font-size:18px;height:38px;border:1px solid #d1d5db;border-radius:8px;background:#ffffff;color:#111827;\" title=\"Print BAPP\">🖨️</a>""",
+                            unsafe_allow_html=True,
+                        )
 
             if c10.button("👁", key=f"detail_{baris['Nomor Penerimaan']}", help="Lihat detail"):
                 st.session_state.halaman = "detail"
