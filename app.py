@@ -90,8 +90,12 @@ STATUS_OPEN = "OPEN"
 STATUS_DITERIMA = "DITERIMA"
 
 DAFTAR_DIREKTORAT_DEFAULT = ["SD", "SMP", "SMA", "SMK"]
-UKURAN_HALAMAN_DAFTAR = 25
+UKURAN_HALAMAN_DAFTAR = 50
 BAPP_PER_LEMBAR_PRINT = 30
+
+# Target total BAPP keseluruhan -- dipakai untuk hitung persentase progress
+# di kartu ringkasan halaman Daftar Penerimaan BAPP.
+TARGET_TOTAL_BAPP = 15000
 
 # Ukuran kertas print Penerimaan BAPP: A4 portrait
 KERTAS_PRINT = A4
@@ -116,7 +120,7 @@ st.markdown(
     /* Perkecil ukuran font tampilan web (TIDAK memengaruhi file PDF,
        karena PDF dibuat terpisah lewat reportlab, bukan CSS ini). */
     html, body, [class^="st-"], [class*=" st-"] { font-size: 14px; }
-    h1 { font-size: 1.5rem !important; }
+    h1 { font-size: 2.1rem !important; }
     h2 { font-size: 1.2rem !important; }
     h3, h4 { font-size: 1.05rem !important; }
     .stMarkdown p, .stMarkdown li, div[data-testid="stCaptionContainer"] { font-size: 0.85rem !important; }
@@ -1419,6 +1423,19 @@ def buat_pdf_penerimaan(info, tabel_df):
 # 7. KOMPONEN TAMPILAN KECIL (card, badge)
 # =====================================================================
 
+def render_metric_card(label, value, icon=""):
+    st.markdown(
+        f"""
+        <div style="background:#ffffff;border-radius:14px;padding:16px 18px;
+                    box-shadow:0 1px 3px rgba(0,0,0,0.08);border:1px solid #eef0f2;">
+            <div style="font-size:12.5px;color:#6b7280;margin-bottom:6px;">{icon} {label}</div>
+            <div style="font-size:24px;font-weight:700;color:#111827;">{value}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def render_badge(teks, warna="abu"):
     palet = {
         "hijau": ("#166534", "#dcfce7"),
@@ -1708,6 +1725,40 @@ if st.session_state.halaman == "daftar":
         if st.button("⚙️", use_container_width=True, help="Pengaturan"):
             st.session_state.halaman = "pengaturan"
             st.rerun()
+
+    # ------------------------------------------------------------------
+    # Mini dashboard (3 kartu) -- sengaja hanya operasi vektor pandas
+    # (str.startswith, perbandingan ==) yang cepat walau datanya ~15rb
+    # baris, BUKAN .apply() per-baris yang dulu bikin Dashboard lemot.
+    # ------------------------------------------------------------------
+    df_master_ringkas = st.session_state.get("master_df", pd.DataFrame())
+    hari_ini_str = datetime.now().strftime("%d/%m/%Y")
+
+    total_hari_ini = 0
+    total_diterima = 0
+    if not df_master_ringkas.empty and KOLOM_WAKTU_BARU in df_master_ringkas.columns:
+        total_hari_ini = int(
+            df_master_ringkas[KOLOM_WAKTU_BARU].astype(str).str.startswith(hari_ini_str).sum()
+        )
+    if not df_master_ringkas.empty and KOLOM_STATUS_BARU in df_master_ringkas.columns:
+        total_diterima = int(
+            (df_master_ringkas[KOLOM_STATUS_BARU].astype(str).str.strip().str.upper() == STATUS_DITERIMA).sum()
+        )
+    persen_progress = (total_diterima / TARGET_TOTAL_BAPP * 100) if TARGET_TOTAL_BAPP else 0
+
+    cm1, cm2, cm3 = st.columns(3)
+    with cm1:
+        render_metric_card("Penerimaan BAPP Hari Ini", f"{total_hari_ini:,}".replace(",", "."), "📅")
+    with cm2:
+        render_metric_card("Penerimaan BAPP Total", f"{total_diterima:,}".replace(",", "."), "📦")
+    with cm3:
+        render_metric_card(
+            "Progress Diterima",
+            f"{persen_progress:.1f}%",
+            "📊",
+        )
+    st.caption(f"Progress dihitung dari total diterima dibagi target {TARGET_TOTAL_BAPP:,} BAPP.".replace(",", "."))
+    st.markdown("")
 
     df_riwayat = get_riwayat()
 
