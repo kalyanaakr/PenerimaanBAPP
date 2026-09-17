@@ -56,7 +56,7 @@ DB_FILE = os.path.join(BASE_DIR, "bapp_cadangan.db")
 BARIS_HEADER = 3
 
 # Data master otomatis di-refresh ulang kalau sudah lebih tua dari ini (detik).
-AUTO_REFRESH_DETIK = 5 * 60  # 5 menit
+AUTO_REFRESH_DETIK = 90  # 90 detik -- dipakai bareng auto-reload halaman Daftar
 
 # Kolom data sekolah yang dibaca dari sheet "data" (sudah ada dari awal).
 # "Nomor Urut Penerimaan" (tanpa akhiran) adalah nomor urut dari penerimaan
@@ -81,8 +81,16 @@ KOLOM_PENGIRIM = "Nama Pengirim"
 KOLOM_PIC = "PIC Penerimaan"
 KOLOM_URUTAN_BARU = "Nomor Urut Penerimaan Baru"  # dipakai internal utk urutan simpan
 KOLOM_URUTAN_PERTAMA = "Nomor Urut Penerimaan"    # referensi, sudah ada di sheet
+# Timestamp presisi (tanggal + jam:menit:detik) saat penerimaan DIBUAT --
+# HANYA dipakai untuk mengurutkan Daftar Penerimaan BAPP sesuai urutan
+# pembuatan folder yang sebenarnya. Tidak pernah ditampilkan ke user di
+# mana pun (beda dengan KOLOM_WAKTU_BARU yang cuma tanggal, buat tampilan).
+KOLOM_TIMESTAMP_URUT = "Timestamp Penerimaan Baru"
 
-KOLOM_TULIS = [KOLOM_STATUS_BARU, KOLOM_WAKTU_BARU, KOLOM_NOMOR_BARU, KOLOM_PENGIRIM, KOLOM_PIC, KOLOM_URUTAN_BARU]
+KOLOM_TULIS = [
+    KOLOM_STATUS_BARU, KOLOM_WAKTU_BARU, KOLOM_NOMOR_BARU,
+    KOLOM_PENGIRIM, KOLOM_PIC, KOLOM_URUTAN_BARU, KOLOM_TIMESTAMP_URUT,
+]
 KOLOM_WAJIB = KOLOM_DATA_SEKOLAH + KOLOM_TULIS
 
 # Nilai status folder/penerimaan yang ditulis ke KOLOM_STATUS_BARU.
@@ -91,7 +99,7 @@ STATUS_DITERIMA = "DITERIMA"
 
 DAFTAR_DIREKTORAT_DEFAULT = ["SD", "SMP", "SMA", "SMK"]
 UKURAN_HALAMAN_DAFTAR = 50
-BAPP_PER_LEMBAR_PRINT = 30
+BAPP_PER_LEMBAR_PRINT = 35
 
 # Target total BAPP keseluruhan -- dipakai untuk hitung persentase progress
 # di kartu ringkasan halaman Daftar Penerimaan BAPP.
@@ -381,6 +389,7 @@ def catat_scan_ke_spreadsheet(item, info, urutan):
     idx = _header_dan_idx_kolom_tulis(ws)
 
     waktu_tulis = info["tanggal"].strftime("%d/%m/%Y")
+    timestamp_urut = info.get("waktu_buat") or datetime.now().strftime("%d/%m/%Y %H:%M:%S.%f")
     baris = item["_baris_sheet"]
     nilai = {
         KOLOM_STATUS_BARU: STATUS_OPEN,
@@ -389,6 +398,7 @@ def catat_scan_ke_spreadsheet(item, info, urutan):
         KOLOM_PENGIRIM: info["nama_pengirim"],
         KOLOM_PIC: info["pic"],
         KOLOM_URUTAN_BARU: str(urutan),
+        KOLOM_TIMESTAMP_URUT: timestamp_urut,
     }
     updates = [{"range": rowcol_to_a1(baris, idx[k]), "values": [[v]]} for k, v in nilai.items()]
     _panggil_dengan_retry(lambda: ws.batch_update(updates, value_input_option="RAW"))
@@ -487,6 +497,10 @@ def muat_penerimaan_open(nomor_penerimaan):
         "nama_pengirim": str(baris_pertama.get(KOLOM_PENGIRIM, "")),
         "tanggal": tanggal_obj,
         "pic": str(baris_pertama.get(KOLOM_PIC, "")),
+        # Pulihkan timestamp pembuatan ASLI dari Spreadsheet (bukan bikin
+        # baru) supaya urutan di Daftar Penerimaan BAPP tetap benar
+        # walau penerimaan ini dilanjutkan lagi nanti/dari sesi lain.
+        "waktu_buat": str(baris_pertama.get(KOLOM_TIMESTAMP_URUT, "")).strip() or None,
     }
     st.session_state.scan_list = scan_list_baru
     st.session_state.scan_message = None
@@ -543,6 +557,8 @@ def get_riwayat():
         agg_dict["Pengirim"] = (KOLOM_PENGIRIM, "first")
     if KOLOM_PIC in terisi.columns:
         agg_dict["PIC"] = (KOLOM_PIC, "first")
+    if KOLOM_TIMESTAMP_URUT in terisi.columns:
+        agg_dict["TimestampUrut"] = (KOLOM_TIMESTAMP_URUT, "first")
 
     ringkasan = (
         terisi.groupby(KOLOM_NOMOR_BARU).agg(**agg_dict).reset_index()
@@ -555,15 +571,36 @@ def get_riwayat():
     # ambil bagian tanggal saja -- kompatibel dengan data lama yang masih
     # menyertakan jam ("03/09/2026 14:30") maupun data baru tanpa jam ("03/09/2026")
     tanggal_saja = ringkasan["Waktu"].astype(str).str.split(" ").str[0]
-    ringkasan["_waktu_dt"] = pd.to_datetime(tanggal_saja, format="%d/%m/%Y", errors="coerce")
-    ringkasan["Tanggal"] = ringkasan["_waktu_dt"].dt.strftime("%d/%m/%Y")
+    ringkasan["_tanggal_dt"] = pd.to_datetime(tanggal_saja, format="%d/%m/%Y", errors="coerce")
+    ringkasan["Tanggal"] = ringkasan["_tanggal_dt"].dt.strftime("%d/%m/%Y")
+
+    # Urutan TAMPILAN di Daftar Penerimaan BAPP dihitung dari timestamp
+    # presisi (tanggal+jam) saat folder dibuat -- BUKAN dari tanggal saja --
+    # supaya penerimaan yang dibuat di hari yang sama tetap terurut sesuai
+    # urutan pembuatan sebenarnya, bukan "kebetulan" ketuker ke urutan
+    # Nomor Penerimaan (yang diawali kode Direktorat). Untuk data lama yang
+    # dibuat sebelum kolom Timestamp Penerimaan Baru ada, fallback ke
+    # tanggal saja supaya tetap muncul (walau urutan dalam 1 hari itu
+    # sendiri tidak presisi).
+    if "TimestampUrut" in ringkasan.columns:
+        ringkasan["_urut_dt"] = pd.to_datetime(
+            ringkasan["TimestampUrut"], format="%d/%m/%Y %H:%M:%S.%f", errors="coerce"
+        )
+        ringkasan["_urut_dt"] = ringkasan["_urut_dt"].fillna(ringkasan["_tanggal_dt"])
+    else:
+        ringkasan["_urut_dt"] = ringkasan["_tanggal_dt"]
+
+    kolom_dibuang = ["_tanggal_dt", "_urut_dt", "Waktu"]
+    if "TimestampUrut" in ringkasan.columns:
+        kolom_dibuang.append("TimestampUrut")
+
     ringkasan = (
         ringkasan.sort_values(
-            ["_waktu_dt", "Nomor Penerimaan"],
+            ["_urut_dt", "Nomor Penerimaan"],
             ascending=[False, False],
             na_position="last",
         )
-        .drop(columns=["_waktu_dt", "Waktu"])
+        .drop(columns=kolom_dibuang)
     )
 
     for kolom in ["Pengirim", "PIC"]:
@@ -755,23 +792,36 @@ def pastikan_nomor_penerimaan_unik(info):
     popup "Buat Penerimaan Baru" hampir bersamaan sebelum salah satunya
     sempat menyimpan BAPP pertamanya, keduanya bisa dapat Nomor Penerimaan
     yang SAMA (bug tumpang tindih). Untuk mencegah ini, sebelum BAPP
-    pertama benar-benar disimpan, refresh dulu data terbaru dari
-    Spreadsheet (bukan cache lokal) dan cek apakah nomor tsb sudah lebih
-    dulu dipakai operator lain -- kalau iya, generate ulang nomor baru
-    yang benar-benar masih kosong. Mengembalikan True kalau nomornya
-    sempat diganti (supaya bisa diberi tahu ke operator)."""
-    refresh_master_data()
-    df = st.session_state.get("master_df", pd.DataFrame())
-    nomor_sekarang = str(info.get("nomor_penerimaan", "")).strip()
+    pertama benar-benar disimpan, ambil dulu data TERBARU langsung dari
+    Spreadsheet dan cek apakah nomor tsb sudah lebih dulu dipakai operator
+    lain -- kalau iya, generate ulang nomor baru yang benar-benar masih
+    kosong.
 
-    sudah_dipakai = False
-    if not df.empty and KOLOM_NOMOR_BARU in df.columns and nomor_sekarang:
-        sudah_dipakai = bool(
-            (df[KOLOM_NOMOR_BARU].astype(str).str.strip() == nomor_sekarang).any()
-        )
+    Sengaja HANYA mengambil satu kolom (Nomor Penerimaan Baru) lewat
+    ws.col_values(), BUKAN refresh_master_data() yang menarik ulang
+    seluruh isi sheet (~15rb baris semua kolom) -- supaya tetap cepat,
+    tidak bikin lemot tiap kali BAPP pertama di-scan.
+
+    Mengembalikan True kalau nomornya sempat diganti (supaya bisa diberi
+    tahu ke operator)."""
+    ws = get_worksheet()
+    idx = _header_dan_idx_kolom_tulis(ws)
+    nilai_kolom = _panggil_dengan_retry(lambda: ws.col_values(idx[KOLOM_NOMOR_BARU]))
+
+    nomor_sekarang = str(info.get("nomor_penerimaan", "")).strip()
+    sudah_dipakai = any(str(v).strip() == nomor_sekarang for v in nilai_kolom)
 
     if sudah_dipakai:
-        nomor_baru = generate_nomor_penerimaan(info["direktorat"])
+        termin = get_setting("termin_penerimaan", "2")
+        prefix = f"{info['direktorat'].upper()}{termin}-"
+        max_urut = 0
+        for v in nilai_kolom:
+            v = str(v).strip()
+            if v.startswith(prefix):
+                suffix = v[len(prefix):]
+                if suffix.isdigit():
+                    max_urut = max(max_urut, int(suffix))
+        nomor_baru = f"{prefix}{max_urut + 1:03d}"
         info["nomor_penerimaan"] = nomor_baru
         st.session_state.penerimaan_aktif["nomor_penerimaan"] = nomor_baru
         return True
@@ -827,6 +877,24 @@ def autofocus_scan_input():
             const input = doc.querySelector('input[aria-label="scan_nomor_transaksi"]');
             if (input) { input.focus(); }
         }, 150);
+        </script>
+        """,
+        height=0,
+    )
+
+
+def auto_refresh_halaman(detik=30):
+    """Reload otomatis halaman ini setiap N detik, supaya operator/
+    supervisor yang membuka Daftar Penerimaan BAPP melihat data terbaru
+    (termasuk perubahan dari operator lain) tanpa perlu klik tombol
+    Refresh manual. Catatan: karena ini reload penuh, isi kotak
+    cari/filter akan ikut ter-reset tiap kali reload terjadi."""
+    components.html(
+        f"""
+        <script>
+        setTimeout(function() {{
+            window.parent.location.reload();
+        }}, {detik * 1000});
         </script>
         """,
         height=0,
@@ -1098,391 +1166,403 @@ def buat_pdf_penerimaan(info, tabel_df):
     # ================================================================
     # LOOP HALAMAN
     # ================================================================
-    for lembar in range(total_lembar):
+    # Bukti Penerimaan BAPP dicetak 2 kali berturut-turut (2 rangkap) dalam
+    # SATU file PDF yang sama, supaya operator tidak perlu print manual 2x.
+    jumlah_rangkap = 2
+    for rangkap in range(jumlah_rangkap):
+        for lembar in range(total_lembar):
 
-        mulai = lembar * BAPP_PER_LEMBAR_PRINT
-        selesai = (lembar + 1) * BAPP_PER_LEMBAR_PRINT
-        potongan = tabel_df.iloc[mulai:selesai]
+            mulai = lembar * BAPP_PER_LEMBAR_PRINT
+            selesai = (lembar + 1) * BAPP_PER_LEMBAR_PRINT
+            potongan = tabel_df.iloc[mulai:selesai]
 
-        # ------------------------------------------------------------
-        # JUDUL
-        # ------------------------------------------------------------
-        flow.append(
-            Paragraph(
-                "BUKTI PENERIMAAN BAPP TAHAP 2",
-                judul_style
-            )
-        )
-
-        # ------------------------------------------------------------
-        # INFO PENERIMAAN
-        # ------------------------------------------------------------
-        info_rows = [
-            [
-                info_label("Nomor Penerimaan"),
-                info_value(":"),
-                info_value(info.get("nomor_penerimaan") or "-"),
-                info_label("Tanggal"),
-                info_value(":"),
-                info_value(tanggal_saja),
-            ],
-            [
-                info_label("Pengirim"),
-                info_value(":"),
-                info_value(info.get("pengirim") or "-"),
-                info_label("PIC Penerimaan"),
-                info_value(":"),
-                info_value(info.get("pic") or "-"),
-            ],
-            [
-                info_label("Direktorat"),
-                info_value(":"),
-                info_value(info.get("direktorat") or "-"),
-                info_label("Jumlah BAPP"),
-                info_value(":"),
-                info_value(str(info.get("jumlah", ""))),
-            ],
-        ]
-
-        t_info = Table(
-            info_rows,
-            colWidths=[
-                2.35 * cm,
-                0.25 * cm,
-                6.35 * cm,
-                2.35 * cm,
-                0.25 * cm,
-                6.35 * cm,
-            ],
-            rowHeights=[
-                0.62 * cm,
-                0.62 * cm,
-                0.62 * cm,
-            ],
-        )
-
-        t_info.setStyle(
-            TableStyle([
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("ALIGN", (1, 0), (1, -1), "CENTER"),
-                ("ALIGN", (4, 0), (4, -1), "CENTER"),
-                ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 1),
-                ("TOPPADDING", (0, 0), (-1, -1), 0),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-            ])
-        )
-
-        flow.append(t_info)
-
-        # Jarak pendek sebelum tabel.
-        flow.append(Spacer(1, 0.42 * cm))
-
-        # ------------------------------------------------------------
-        # HEADER TABEL
-        # ------------------------------------------------------------
-        header_tabel = [
-            header_sel(t)
-            for t in [
-                "No",
-                "Nomor Transaksi",
-                "NPSN",
-                "Nama Sekolah",
-                "Tanggal BAPP",
-                "Barcode<br/>Penerimaan",
-                "Nomor<br/>Penerimaan 1",
-                "Serial Number",
-            ]
-        ]
-
-        data_tabel = [header_tabel]
-
-        # ------------------------------------------------------------
-        # ISI TABEL
-        # ------------------------------------------------------------
-        for _, r in potongan.iterrows():
-            data_tabel.append([
-                sel(r["Nomor"]),
-                sel(r["Nomor Transaksi"]),
-                sel(r["NPSN"]),
-                sel(r["Nama Sekolah"]),
-                sel(tambah_nama_hari(r["Tanggal BAPP"])),
-                buat_sel_barcode(
-                    r["Barcode Penerimaan"],
-                    style_teks=sel_style
-                ),
-                sel(r["Nomor Penerimaan Pertama"]),
-                sel(r["Serial Number"]),
-            ])
-
-        # ------------------------------------------------------------
-        # TABEL
-        #
-        # Tinggi 0.55 cm x 40 = 22 cm (disesuaikan naik karena font
-        # tabel diperbesar dari 5.6pt ke 7.5pt).
-        # ------------------------------------------------------------
-        row_heights = [0.85 * cm] + [
-            0.55 * cm for _ in range(len(potongan))
-        ]
-
-        t = Table(
-            data_tabel,
-            colWidths=lebar_kolom,
-            rowHeights=row_heights,
-            repeatRows=1,
-            splitByRow=1,
-            hAlign="CENTER",
-        )
-
-        t.setStyle(
-            TableStyle([
-                # Header
-                (
-                    "BACKGROUND",
-                    (0, 0),
-                    (-1, 0),
-                    colors.HexColor("#e5e7eb")
-                ),
-                (
-                    "TEXTCOLOR",
-                    (0, 0),
-                    (-1, 0),
-                    colors.HexColor("#111827")
-                ),
-
-                # Grid
-                (
-                    "GRID",
-                    (0, 0),
-                    (-1, -1),
-                    0.4,
-                    colors.HexColor("#111827")
-                ),
-
-                # Font
-                (
-                    "FONTNAME",
-                    (0, 1),
-                    (-1, -1),
-                    "Helvetica"
-                ),
-                (
-                    "FONTSIZE",
-                    (0, 1),
-                    (-1, -1),
-                    7.5
-                ),
-
-                # Padding
-                (
-                    "TOPPADDING",
-                    (0, 0),
-                    (-1, -1),
-                    0
-                ),
-                (
-                    "BOTTOMPADDING",
-                    (0, 0),
-                    (-1, -1),
-                    0
-                ),
-                (
-                    "LEFTPADDING",
-                    (0, 0),
-                    (-1, -1),
-                    1
-                ),
-                (
-                    "RIGHTPADDING",
-                    (0, 0),
-                    (-1, -1),
-                    1
-                ),
-
-                # Alignment
-                (
-                    "ALIGN",
-                    (0, 0),
-                    (-1, -1),
-                    "CENTER"
-                ),
-                (
-                    "VALIGN",
-                    (0, 0),
-                    (-1, -1),
-                    "MIDDLE"
-                ),
-            ])
-        )
-
-        flow.append(t)
-
-        # ------------------------------------------------------------
-        # TANDA TANGAN - HANYA HALAMAN TERAKHIR
-        # ------------------------------------------------------------
-        if lembar == total_lembar - 1:
-
-            flow.append(Spacer(1, 1.0 * cm))
-
-            pengirim_label = (
-                info.get("pengirim")
-                or "..........................."
+            # ------------------------------------------------------------
+            # JUDUL
+            # ------------------------------------------------------------
+            flow.append(
+                Paragraph(
+                    "BUKTI PENERIMAAN BAPP TAHAP 2",
+                    judul_style
+                )
             )
 
-            pic_label = (
-                info.get("pic")
-                or "..........................."
-            )
-
-            kolom_kosong = "(" + " " * 18 + ")"
-
-            ttd_rows = [
+            # ------------------------------------------------------------
+            # INFO PENERIMAAN
+            # ------------------------------------------------------------
+            info_rows = [
                 [
-                    "Pengirim",
-                    "",
-                    "Tim Sortir",
-                    "",
-                    "Tim Scan",
-                    "",
-                    "PIC Penerimaan"
+                    info_label("Nomor Penerimaan"),
+                    info_value(":"),
+                    info_value(info.get("nomor_penerimaan") or "-"),
+                    info_label("Tanggal"),
+                    info_value(":"),
+                    info_value(tanggal_saja),
                 ],
                 [
-                    "", "", "", "", "", "", ""
+                    info_label("Pengirim"),
+                    info_value(":"),
+                    info_value(info.get("pengirim") or "-"),
+                    info_label("PIC Penerimaan"),
+                    info_value(":"),
+                    info_value(info.get("pic") or "-"),
                 ],
                 [
-                    "", "", "", "", "", "", ""
-                ],
-                [
-                    f"({pengirim_label})",
-                    "",
-                    kolom_kosong,
-                    "",
-                    kolom_kosong,
-                    "",
-                    f"({pic_label})"
+                    info_label("Direktorat"),
+                    info_value(":"),
+                    info_value(info.get("direktorat") or "-"),
+                    info_label("Jumlah BAPP"),
+                    info_value(":"),
+                    info_value(str(info.get("jumlah", ""))),
                 ],
             ]
 
-            t_ttd = Table(
-                ttd_rows,
+            t_info = Table(
+                info_rows,
                 colWidths=[
-                    3.95 * cm,
-                    0.65 * cm,
-                    3.95 * cm,
-                    0.65 * cm,
-                    3.95 * cm,
-                    0.65 * cm,
-                    3.95 * cm,
+                    2.35 * cm,
+                    0.25 * cm,
+                    6.35 * cm,
+                    2.35 * cm,
+                    0.25 * cm,
+                    6.35 * cm,
                 ],
                 rowHeights=[
-                    0.55 * cm,
-                    1.8 * cm,
-                    0.45 * cm,
-                    0.55 * cm,
+                    0.62 * cm,
+                    0.62 * cm,
+                    0.62 * cm,
                 ],
-                hAlign="CENTER",
             )
 
-            t_ttd.setStyle(
+            t_info.setStyle(
                 TableStyle([
-                    ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
-                    ("FONTSIZE", (0, 0), (-1, -1), 9.5),
-                    ("FONTNAME", (2, 0), (2, 0), "Helvetica-Bold"),
-                    ("FONTNAME", (4, 0), (4, 0), "Helvetica-Bold"),
-                    ("FONTNAME", (6, 0), (6, 0), "Helvetica-Bold"),
-                    ("ALIGN", (0, 0), (-1, -1), "CENTER"),
                     ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("ALIGN", (1, 0), (1, -1), "CENTER"),
+                    ("ALIGN", (4, 0), (4, -1), "CENTER"),
                     ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 1),
                     ("TOPPADDING", (0, 0), (-1, -1), 0),
                     ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
                 ])
             )
 
-            flow.append(t_ttd)
-            flow.append(Spacer(1, 0.35 * cm))
+            flow.append(t_info)
 
-        # ------------------------------------------------------------
-        # RINGKASAN BUNDLE ASAL (Nomor Penerimaan Pertama) -- HANYA
-        # HALAMAN TERAKHIR. Dihitung dari SELURUH BAPP di penerimaan
-        # ini (bukan cuma yang ada di halaman terakhir), supaya Tim
-        # Sortir tahu bundle apa saja yang perlu dicari & berapa
-        # banyak BAPP dari masing-masing bundle itu.
-        # ------------------------------------------------------------
-        if lembar == total_lembar - 1 and not ringkasan_bundle.empty:
+            # Jarak pendek sebelum tabel.
+            flow.append(Spacer(1, 0.42 * cm))
 
-            flow.append(PageBreak())
-            flow.append(Spacer(1, 0.35 * cm))
-            flow.append(
-                Paragraph(
-                    "Ringkasan Bundle Asal (untuk Tim Sortir)",
-                    judul_ringkasan_style
-                )
-            )
-            flow.append(Spacer(1, 0.45 * cm))
-
-            # Informasi penerimaan pada halaman ringkasan bundle
-            info_ringkasan_rows = [
-                [info_label("Nomor Penerimaan"), info_value(info.get("nomor_penerimaan") or "-"), info_label("Tanggal"), info_value(tanggal_saja)],
-                [info_label("Pengirim"), info_value(info.get("pengirim") or "-"), info_label("PIC Penerimaan"), info_value(info.get("pic") or "-")],
-                [info_label("Direktorat"), info_value(info.get("direktorat") or "-"), info_label("Jumlah BAPP"), info_value(str(info.get("jumlah", "")))],
+            # ------------------------------------------------------------
+            # HEADER TABEL
+            # ------------------------------------------------------------
+            header_tabel = [
+                header_sel(t)
+                for t in [
+                    "No",
+                    "Nomor Transaksi",
+                    "NPSN",
+                    "Nama Sekolah",
+                    "Tanggal BAPP",
+                    "Barcode<br/>Penerimaan",
+                    "Nomor<br/>Penerimaan 1",
+                    "Serial Number",
+                ]
             ]
-            flow.append(
-                Table(
-                    info_ringkasan_rows,
-                    colWidths=[3.0 * cm, 6.0 * cm, 3.0 * cm, 6.0 * cm],
-                    rowHeights=[0.85 * cm, 0.85 * cm, 0.85 * cm],
-                    hAlign="CENTER",
-                    style=TableStyle([
-                        ("ALIGN", (0, 0), (-1, -1), "LEFT"),
-                        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                        ("LEFTPADDING", (0, 0), (-1, -1), 4),
-                        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-                        ("TOPPADDING", (0, 0), (-1, -1), 5),
-                        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-                    ])
-                )
-            )
-            flow.append(Spacer(1, 0.55 * cm))
 
-            ringkasan_rows = [["Nomor Penerimaan Pertama", "Jumlah BAPP"]]
-            for _, r in ringkasan_bundle.iterrows():
-                ringkasan_rows.append([
-                    str(r["Nomor Penerimaan Pertama"]),
-                    str(r["Jumlah BAPP"]),
+            data_tabel = [header_tabel]
+
+            # ------------------------------------------------------------
+            # ISI TABEL
+            # ------------------------------------------------------------
+            for _, r in potongan.iterrows():
+                data_tabel.append([
+                    sel(r["Nomor"]),
+                    sel(r["Nomor Transaksi"]),
+                    sel(r["NPSN"]),
+                    sel(r["Nama Sekolah"]),
+                    sel(tambah_nama_hari(r["Tanggal BAPP"])),
+                    buat_sel_barcode(
+                        r["Barcode Penerimaan"],
+                        style_teks=sel_style
+                    ),
+                    sel(r["Nomor Penerimaan Pertama"]),
+                    sel(r["Serial Number"]),
                 ])
 
-            t_ringkasan = Table(
-                ringkasan_rows,
-                colWidths=[6 * cm, 3 * cm],
+            # ------------------------------------------------------------
+            # TABEL
+            #
+            # Tinggi 0.55 cm x 40 = 22 cm (disesuaikan naik karena font
+            # tabel diperbesar dari 5.6pt ke 7.5pt).
+            # ------------------------------------------------------------
+            row_heights = [0.85 * cm] + [
+                0.55 * cm for _ in range(len(potongan))
+            ]
+
+            t = Table(
+                data_tabel,
+                colWidths=lebar_kolom,
+                rowHeights=row_heights,
+                repeatRows=1,
+                splitByRow=1,
                 hAlign="CENTER",
             )
 
-            t_ringkasan.setStyle(
+            t.setStyle(
                 TableStyle([
-                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e5e7eb")),
-                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                    ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
-                    ("FONTSIZE", (0, 0), (-1, -1), 9.5),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 4),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-                    ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    # Header
+                    (
+                        "BACKGROUND",
+                        (0, 0),
+                        (-1, 0),
+                        colors.HexColor("#e5e7eb")
+                    ),
+                    (
+                        "TEXTCOLOR",
+                        (0, 0),
+                        (-1, 0),
+                        colors.HexColor("#111827")
+                    ),
+
+                    # Grid
+                    (
+                        "GRID",
+                        (0, 0),
+                        (-1, -1),
+                        0.4,
+                        colors.HexColor("#111827")
+                    ),
+
+                    # Font
+                    (
+                        "FONTNAME",
+                        (0, 1),
+                        (-1, -1),
+                        "Helvetica"
+                    ),
+                    (
+                        "FONTSIZE",
+                        (0, 1),
+                        (-1, -1),
+                        7.5
+                    ),
+
+                    # Padding
+                    (
+                        "TOPPADDING",
+                        (0, 0),
+                        (-1, -1),
+                        0
+                    ),
+                    (
+                        "BOTTOMPADDING",
+                        (0, 0),
+                        (-1, -1),
+                        0
+                    ),
+                    (
+                        "LEFTPADDING",
+                        (0, 0),
+                        (-1, -1),
+                        1
+                    ),
+                    (
+                        "RIGHTPADDING",
+                        (0, 0),
+                        (-1, -1),
+                        1
+                    ),
+
+                    # Alignment
+                    (
+                        "ALIGN",
+                        (0, 0),
+                        (-1, -1),
+                        "CENTER"
+                    ),
+                    (
+                        "VALIGN",
+                        (0, 0),
+                        (-1, -1),
+                        "MIDDLE"
+                    ),
                 ])
             )
 
-            flow.append(t_ringkasan)
+            flow.append(t)
+
+            # ------------------------------------------------------------
+            # TANDA TANGAN - HANYA HALAMAN TERAKHIR
+            # ------------------------------------------------------------
+            if lembar == total_lembar - 1:
+
+                flow.append(Spacer(1, 1.0 * cm))
+
+                pengirim_label = (
+                    info.get("pengirim")
+                    or "..........................."
+                )
+
+                pic_label = (
+                    info.get("pic")
+                    or "..........................."
+                )
+
+                kolom_kosong = "(" + " " * 18 + ")"
+
+                ttd_rows = [
+                    [
+                        "Pengirim",
+                        "",
+                        "Tim Sortir",
+                        "",
+                        "Tim Scan",
+                        "",
+                        "PIC Penerimaan"
+                    ],
+                    [
+                        "", "", "", "", "", "", ""
+                    ],
+                    [
+                        "", "", "", "", "", "", ""
+                    ],
+                    [
+                        f"({pengirim_label})",
+                        "",
+                        kolom_kosong,
+                        "",
+                        kolom_kosong,
+                        "",
+                        f"({pic_label})"
+                    ],
+                ]
+
+                t_ttd = Table(
+                    ttd_rows,
+                    colWidths=[
+                        3.95 * cm,
+                        0.65 * cm,
+                        3.95 * cm,
+                        0.65 * cm,
+                        3.95 * cm,
+                        0.65 * cm,
+                        3.95 * cm,
+                    ],
+                    rowHeights=[
+                        0.55 * cm,
+                        1.8 * cm,
+                        0.45 * cm,
+                        0.55 * cm,
+                    ],
+                    hAlign="CENTER",
+                )
+
+                t_ttd.setStyle(
+                    TableStyle([
+                        ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
+                        ("FONTSIZE", (0, 0), (-1, -1), 9.5),
+                        ("FONTNAME", (2, 0), (2, 0), "Helvetica-Bold"),
+                        ("FONTNAME", (4, 0), (4, 0), "Helvetica-Bold"),
+                        ("FONTNAME", (6, 0), (6, 0), "Helvetica-Bold"),
+                        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                        ("TOPPADDING", (0, 0), (-1, -1), 0),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                    ])
+                )
+
+                flow.append(t_ttd)
+                flow.append(Spacer(1, 0.35 * cm))
+
+            # ------------------------------------------------------------
+            # RINGKASAN BUNDLE ASAL (Nomor Penerimaan Pertama) -- HANYA
+            # HALAMAN TERAKHIR. Dihitung dari SELURUH BAPP di penerimaan
+            # ini (bukan cuma yang ada di halaman terakhir), supaya Tim
+            # Sortir tahu bundle apa saja yang perlu dicari & berapa
+            # banyak BAPP dari masing-masing bundle itu.
+            # ------------------------------------------------------------
 
 
-        # ------------------------------------------------------------
-        # PAGE BREAK
-        #
-        # PageBreak hanya diberikan kalau memang masih ada halaman
-        # berikutnya. Karena tabel sekarang dibuat cukup pendek,
-        # tidak akan terjadi split tabel -> PageBreak ganda.
-        # ------------------------------------------------------------
-        if lembar < total_lembar - 1:
-            flow.append(PageBreak())
+            # ------------------------------------------------------------
+            # PAGE BREAK
+            #
+            # PageBreak hanya diberikan kalau memang masih ada halaman
+            # berikutnya. Karena tabel sekarang dibuat cukup pendek,
+            # tidak akan terjadi split tabel -> PageBreak ganda.
+            # ------------------------------------------------------------
+            if lembar < total_lembar - 1:
+                flow.append(PageBreak())
+            elif rangkap < jumlah_rangkap - 1:
+                flow.append(PageBreak())
+
+    # ====================================================================
+    # RINGKASAN BUNDLE ASAL -- HANYA SATU KALI, di halaman paling akhir
+    # (setelah KEDUA rangkap Bukti Penerimaan BAPP selesai dicetak).
+    # ====================================================================
+    if not ringkasan_bundle.empty:
+
+        flow.append(PageBreak())
+        flow.append(Spacer(1, 0.35 * cm))
+        flow.append(
+            Paragraph(
+                "Ringkasan Bundle Asal (untuk Tim Sortir)",
+                judul_ringkasan_style
+            )
+        )
+        flow.append(Spacer(1, 0.45 * cm))
+
+        # Informasi penerimaan pada halaman ringkasan bundle
+        info_ringkasan_rows = [
+            [info_label("Nomor Penerimaan"), info_value(info.get("nomor_penerimaan") or "-"), info_label("Tanggal"), info_value(tanggal_saja)],
+            [info_label("Pengirim"), info_value(info.get("pengirim") or "-"), info_label("PIC Penerimaan"), info_value(info.get("pic") or "-")],
+            [info_label("Direktorat"), info_value(info.get("direktorat") or "-"), info_label("Jumlah BAPP"), info_value(str(info.get("jumlah", "")))],
+        ]
+        flow.append(
+            Table(
+                info_ringkasan_rows,
+                colWidths=[3.0 * cm, 6.0 * cm, 3.0 * cm, 6.0 * cm],
+                rowHeights=[0.85 * cm, 0.85 * cm, 0.85 * cm],
+                hAlign="CENTER",
+                style=TableStyle([
+                    ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                    ("TOPPADDING", (0, 0), (-1, -1), 5),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                ])
+            )
+        )
+        flow.append(Spacer(1, 0.55 * cm))
+
+        ringkasan_rows = [["Nomor Penerimaan Pertama", "Jumlah BAPP"]]
+        for _, r in ringkasan_bundle.iterrows():
+            ringkasan_rows.append([
+                str(r["Nomor Penerimaan Pertama"]),
+                str(r["Jumlah BAPP"]),
+            ])
+
+        t_ringkasan = Table(
+            ringkasan_rows,
+            colWidths=[6 * cm, 3 * cm],
+            hAlign="CENTER",
+        )
+
+        t_ringkasan.setStyle(
+            TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e5e7eb")),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
+                ("FONTSIZE", (0, 0), (-1, -1), 9.5),
+                ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ])
+        )
+
+        flow.append(t_ringkasan)
+
 
     # ================================================================
     # BUILD
@@ -1638,6 +1718,10 @@ def dialog_buat_penerimaan():
                 "nama_pengirim": nama_pengirim.strip(),
                 "tanggal": tanggal_penerimaan,
                 "pic": pic_penerimaan.strip(),
+                # Timestamp presisi saat folder ini DIBUAT -- dipakai untuk
+                # mengurutkan Daftar Penerimaan BAPP sesuai urutan pembuatan
+                # yang sebenarnya (lihat KOLOM_TIMESTAMP_URUT).
+                "waktu_buat": datetime.now().strftime("%d/%m/%Y %H:%M:%S.%f"),
             }
             st.session_state.scan_list = []
             st.session_state.scan_message = None
@@ -1789,6 +1873,29 @@ if st.session_state.get("load_error"):
 # =====================================================================
 
 if st.session_state.halaman == "daftar":
+    auto_refresh_halaman(90)
+
+    # Kalau ada tombol 🖨️ yang baru diklik di daftar (lihat kolom Status),
+    # tampilkan PDF-nya langsung di sini -- tanpa perlu buka halaman Detail.
+    if st.session_state.get("print_target"):
+        nomor_print = st.session_state.print_target
+        tabel_print, info_print = get_detail_penerimaan(nomor_print)
+        if info_print and info_print.get("status") == STATUS_DITERIMA:
+            with st.container(border=True):
+                cp_judul, cp_tutup = st.columns([5, 1])
+                with cp_judul:
+                    st.markdown(f"**🖨️ PDF Penerimaan {nomor_print}**")
+                with cp_tutup:
+                    if st.button("✕ Tutup", key="tutup_print_target", use_container_width=True):
+                        st.session_state.print_target = None
+                        st.rerun()
+                with st.spinner("Menyiapkan PDF..."):
+                    pdf_bytes_print = buat_pdf_penerimaan(info_print, tabel_print)
+                render_tombol_pdf(pdf_bytes_print, f"BAPP_{nomor_print}.pdf")
+            st.markdown("")
+        else:
+            st.session_state.print_target = None
+
     c_judul, c_tombol, c_setting = st.columns([5, 2, 0.7])
     with c_judul:
         st.title("Daftar Penerimaan BAPP")
@@ -1903,6 +2010,9 @@ if st.session_state.halaman == "daftar":
                         st.error(pesan_error)
             else:
                 c8.markdown(render_badge("🟢 DITERIMA", "hijau"), unsafe_allow_html=True)
+                if c9.button("🖨️", key=f"print_{baris['Nomor Penerimaan']}", help="Print BAPP"):
+                    st.session_state.print_target = baris["Nomor Penerimaan"]
+                    st.rerun()
 
             if c10.button("👁", key=f"detail_{baris['Nomor Penerimaan']}", help="Lihat detail"):
                 st.session_state.halaman = "detail"
