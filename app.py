@@ -647,6 +647,32 @@ def get_detail_penerimaan(nomor_penerimaan):
 # 5. LOGIKA SCAN
 # =====================================================================
 
+def cari_nomor_transaksi_lengkap(df, input_teks):
+    """Kalau input_teks berupa angka murni (1-5 digit) -- shorthand dari
+    5 digit terakhir Nomor Transaksi yang unik -- cari Nomor Transaksi
+    LENGKAP yang berakhiran digit tsb (di-padding jadi 5 digit, mis. '2'
+    -> '00002', cocok dengan '...0000000002'). Mengembalikan
+    (nomor_transaksi_lengkap, pesan_error). Kalau input_teks bukan angka
+    murni atau lebih dari 5 digit (berarti sudah nomor lengkap / hasil
+    scan barcode), dikembalikan apa adanya tanpa diubah."""
+    input_teks = input_teks.strip()
+    if not input_teks.isdigit() or len(input_teks) > 5 or df.empty or "Nomor Transaksi" not in df.columns:
+        return input_teks, None
+
+    digit_padded = input_teks.zfill(5)
+    semua_nomor = df["Nomor Transaksi"].astype(str).str.strip()
+    cocok = semua_nomor[semua_nomor.str.endswith(digit_padded)]
+
+    if cocok.empty:
+        return input_teks, f"❌ Tidak ditemukan Nomor Transaksi yang berakhiran {digit_padded}."
+    if cocok.nunique() > 1:
+        return input_teks, (
+            f"⚠️ Ada {cocok.nunique()} Nomor Transaksi yang berakhiran {digit_padded} -- "
+            f"ketik lebih banyak digit supaya lebih spesifik."
+        )
+    return cocok.iloc[0], None
+
+
 def proses_scan(nomor_transaksi):
     df = st.session_state.get("master_df", pd.DataFrame())
     if df.empty or "Nomor Transaksi" not in df.columns:
@@ -656,6 +682,14 @@ def proses_scan(nomor_transaksi):
         return
 
     nomor_transaksi = nomor_transaksi.strip()
+
+    # Dukung input shorthand (mis. cuma ketik '2' untuk cari yang
+    # berakhiran '00002') selain scan barcode / ketik nomor lengkap biasa.
+    nomor_transaksi, pesan_error_shorthand = cari_nomor_transaksi_lengkap(df, nomor_transaksi)
+    if pesan_error_shorthand:
+        st.session_state.scan_message = ("error", pesan_error_shorthand)
+        return
+
     cocok = df[df["Nomor Transaksi"].astype(str).str.strip() == nomor_transaksi]
 
     if cocok.empty:
@@ -713,6 +747,37 @@ def proses_scan(nomor_transaksi):
     st.session_state.scan_message = ("success", f"✅ BAPP berhasil ditambahkan — {nomor_transaksi} ({nama_sekolah})")
 
 
+def pastikan_nomor_penerimaan_unik(info):
+    """Dipanggil sebelum menyimpan BAPP PERTAMA suatu penerimaan baru saja.
+
+    Nomor Penerimaan digenerate di popup berdasarkan data yang di-cache
+    lokal di sesi browser masing-masing operator -- kalau 2 operator buka
+    popup "Buat Penerimaan Baru" hampir bersamaan sebelum salah satunya
+    sempat menyimpan BAPP pertamanya, keduanya bisa dapat Nomor Penerimaan
+    yang SAMA (bug tumpang tindih). Untuk mencegah ini, sebelum BAPP
+    pertama benar-benar disimpan, refresh dulu data terbaru dari
+    Spreadsheet (bukan cache lokal) dan cek apakah nomor tsb sudah lebih
+    dulu dipakai operator lain -- kalau iya, generate ulang nomor baru
+    yang benar-benar masih kosong. Mengembalikan True kalau nomornya
+    sempat diganti (supaya bisa diberi tahu ke operator)."""
+    refresh_master_data()
+    df = st.session_state.get("master_df", pd.DataFrame())
+    nomor_sekarang = str(info.get("nomor_penerimaan", "")).strip()
+
+    sudah_dipakai = False
+    if not df.empty and KOLOM_NOMOR_BARU in df.columns and nomor_sekarang:
+        sudah_dipakai = bool(
+            (df[KOLOM_NOMOR_BARU].astype(str).str.strip() == nomor_sekarang).any()
+        )
+
+    if sudah_dipakai:
+        nomor_baru = generate_nomor_penerimaan(info["direktorat"])
+        info["nomor_penerimaan"] = nomor_baru
+        st.session_state.penerimaan_aktif["nomor_penerimaan"] = nomor_baru
+        return True
+    return False
+
+
 def handle_scan_input():
     nomor = st.session_state.input_scan.strip()
     st.session_state.input_scan = ""
@@ -729,6 +794,18 @@ def handle_scan_input():
     urutan_baru = len(st.session_state.scan_list)
     item_baru = st.session_state.scan_list[-1]
     try:
+        if urutan_baru == 1:
+            # BAPP pertama di penerimaan ini -- cek dulu supaya nomornya
+            # tidak tumpang tindih dengan operator lain (lihat docstring
+            # pastikan_nomor_penerimaan_unik).
+            with st.spinner("Memastikan Nomor Penerimaan unik..."):
+                nomor_diganti = pastikan_nomor_penerimaan_unik(info)
+            if nomor_diganti:
+                st.toast(
+                    f"Nomor Penerimaan diperbarui jadi {info['nomor_penerimaan']} -- "
+                    f"nomor sebelumnya barusan dipakai operator lain.",
+                    icon="ℹ️",
+                )
         with st.spinner("Menyimpan ke Spreadsheet..."):
             catat_scan_ke_spreadsheet(item_baru, info, urutan_baru)
     except Exception as e:
@@ -1886,7 +1963,7 @@ elif st.session_state.halaman == "form_baru":
         st.text_input(
             "🔍 Scan Barcode / Ketik Nomor Transaksi",
             key="input_scan",
-            placeholder="Scan barcode atau ketik Nomor Transaksi lalu tekan Enter...",
+            placeholder="Scan barcode, ketik Nomor Transaksi lengkap, atau cukup 1-5 digit terakhirnya...",
             on_change=handle_scan_input,
         )
         autofocus_scan_input()
