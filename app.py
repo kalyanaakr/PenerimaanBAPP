@@ -1875,19 +1875,6 @@ if st.session_state.get("load_error"):
 if st.session_state.halaman == "daftar":
     auto_refresh_halaman(90)
 
-    # Jika tombol Print pada daftar diklik, tampilkan kontrol PDF langsung
-    # di halaman daftar tanpa popup/modal dan tanpa tombol Tutup.
-    if False and st.session_state.get("print_target"):
-        nomor_print = st.session_state.print_target
-        tabel_print, info_print = get_detail_penerimaan(nomor_print)
-        if info_print and info_print.get("status") == STATUS_DITERIMA:
-            st.markdown(f"**🖨️ PDF Penerimaan {nomor_print}**")
-            with st.spinner("Menyiapkan PDF..."):
-                pdf_bytes_print = buat_pdf_penerimaan(info_print, tabel_print)
-            render_tombol_pdf(pdf_bytes_print, f"BAPP_{nomor_print}.pdf")
-        else:
-            st.session_state.print_target = None
-
     c_judul, c_tombol, c_setting = st.columns([5, 2, 0.7])
     with c_judul:
         st.title("Daftar Penerimaan BAPP")
@@ -2009,9 +1996,42 @@ if st.session_state.halaman == "daftar":
                     with c9:
                         pdf_daftar = buat_pdf_penerimaan(info_daftar, tabel_daftar)
                         pdf_b64_daftar = base64.b64encode(pdf_daftar).decode("utf-8")
-                        st.markdown(
-                            f"""<a href=\"data:application/pdf;base64,{pdf_b64_daftar}\" target=\"_blank\" rel=\"noopener\" style=\"display:flex;align-items:center;justify-content:center;text-decoration:none;font-size:18px;height:38px;border:1px solid #d1d5db;border-radius:8px;background:#ffffff;color:#111827;\" title=\"Print BAPP\">🖨️</a>""",
-                            unsafe_allow_html=True,
+                        components.html(
+                            f"""
+                            <button id="btnPrintDaftar_{i}" title="Print BAPP" style="
+                                width:100%; height:38px; border:1px solid #d1d5db;
+                                border-radius:8px; background:#ffffff; color:#111827;
+                                font-size:18px; cursor:pointer;
+                            ">🖨️</button>
+                            <script>
+                            (function() {{
+                                const tombol = document.getElementById("btnPrintDaftar_{i}");
+                                const base64Data = "{pdf_b64_daftar}";
+
+                                tombol.addEventListener("click", function() {{
+                                    const byteChars = atob(base64Data);
+                                    const byteNumbers = new Array(byteChars.length);
+                                    for (let j = 0; j < byteChars.length; j++) {{
+                                        byteNumbers[j] = byteChars.charCodeAt(j);
+                                    }}
+                                    const blob = new Blob([new Uint8Array(byteNumbers)], {{ type: "application/pdf" }});
+                                    const blobUrl = URL.createObjectURL(blob);
+
+                                    // Buka tab baru dan langsung arahkan ke Blob URL.
+                                    // Tidak memakai data: URL yang kadang baru tampil setelah refresh.
+                                    const tab = window.open("about:blank", "_blank");
+                                    if (tab) {{
+                                        tab.location.href = blobUrl;
+                                        setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+                                    }} else {{
+                                        // Fallback jika browser memblokir tab baru.
+                                        window.location.href = blobUrl;
+                                    }}
+                                }});
+                            }})();
+                            </script>
+                            """,
+                            height=45,
                         )
 
             if c10.button("👁", key=f"detail_{baris['Nomor Penerimaan']}", help="Lihat detail"):
