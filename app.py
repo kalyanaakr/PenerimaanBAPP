@@ -1875,24 +1875,16 @@ if st.session_state.get("load_error"):
 if st.session_state.halaman == "daftar":
     auto_refresh_halaman(90)
 
-    # Kalau ada tombol 🖨️ yang baru diklik di daftar (lihat kolom Status),
-    # tampilkan PDF-nya langsung di sini -- tanpa perlu buka halaman Detail.
+    # Jika tombol Print pada daftar diklik, tampilkan kontrol PDF langsung
+    # di halaman daftar tanpa popup/modal dan tanpa tombol Tutup.
     if st.session_state.get("print_target"):
         nomor_print = st.session_state.print_target
         tabel_print, info_print = get_detail_penerimaan(nomor_print)
         if info_print and info_print.get("status") == STATUS_DITERIMA:
-            with st.container(border=True):
-                cp_judul, cp_tutup = st.columns([5, 1])
-                with cp_judul:
-                    st.markdown(f"**🖨️ PDF Penerimaan {nomor_print}**")
-                with cp_tutup:
-                    if st.button("✕ Tutup", key="tutup_print_target", use_container_width=True):
-                        st.session_state.print_target = None
-                        st.rerun()
-                with st.spinner("Menyiapkan PDF..."):
-                    pdf_bytes_print = buat_pdf_penerimaan(info_print, tabel_print)
-                render_tombol_pdf(pdf_bytes_print, f"BAPP_{nomor_print}.pdf")
-            st.markdown("")
+            st.markdown(f"**🖨️ PDF Penerimaan {nomor_print}**")
+            with st.spinner("Menyiapkan PDF..."):
+                pdf_bytes_print = buat_pdf_penerimaan(info_print, tabel_print)
+            render_tombol_pdf(pdf_bytes_print, f"BAPP_{nomor_print}.pdf")
         else:
             st.session_state.print_target = None
 
