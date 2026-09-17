@@ -1608,7 +1608,7 @@ def render_badge(teks, warna="abu"):
 
 
 def render_tombol_pdf(pdf_bytes, nama_file):
-    """Menampilkan 2 tombol berdampingan (Preview & Print + Unduh) dalam SATU
+    """Menampilkan 2 tombol berdampingan (Print + Unduh) dalam SATU
     blok HTML yang sama, supaya ukuran & posisinya simetris persis -- kalau
     salah satu pakai tombol Streamlit asli dan satunya custom HTML, tingginya
     suka beda sedikit dan jadi tidak sejajar.
@@ -1616,7 +1616,7 @@ def render_tombol_pdf(pdf_bytes, nama_file):
     Keduanya pakai teknik Blob URL lewat JavaScript (bukan link data: biasa) --
     browser modern seperti Chrome/Edge tidak lagi membuka PDF langsung dari
     link data:application/pdf;base64,... (yang muncul cuma teks base64 mentah).
-    Blob URL didukung penuh baik untuk dibuka di viewer PDF maupun diunduh."""
+    Blob URL didukung penuh baik untuk dicetak melalui dialog print maupun diunduh."""
     b64 = base64.b64encode(pdf_bytes).decode("utf-8")
     components.html(
         f"""
@@ -1625,7 +1625,7 @@ def render_tombol_pdf(pdf_bytes, nama_file):
                 flex:1; height:2.6rem; border-radius:10px; border:1px solid #d1d5db;
                 background-color:#ffffff; color:#111827; font-weight:500; cursor:pointer;
                 font-family:inherit; font-size:0.95rem;
-            ">👁️ Preview &amp; Print PDF</button>
+            ">👁️ Print PDF</button>
             <button id="btnUnduhPdf" style="
                 flex:1; height:2.6rem; border-radius:10px; border:1px solid #2563eb;
                 background-color:#2563eb; color:#ffffff; font-weight:500; cursor:pointer;
