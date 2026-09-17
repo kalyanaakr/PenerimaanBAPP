@@ -90,7 +90,7 @@ STATUS_OPEN = "OPEN"
 STATUS_DITERIMA = "DITERIMA"
 
 DAFTAR_DIREKTORAT_DEFAULT = ["SD", "SMP", "SMA", "SMK"]
-UKURAN_HALAMAN_DAFTAR = 10
+UKURAN_HALAMAN_DAFTAR = 25
 BAPP_PER_LEMBAR_PRINT = 30
 
 # Ukuran kertas print Penerimaan BAPP: A4 portrait
@@ -112,6 +112,19 @@ st.markdown(
     div[data-testid="stHorizontalBlock"]:hover {
         background-color: #f8fafc;
     }
+
+    /* Perkecil ukuran font tampilan web (TIDAK memengaruhi file PDF,
+       karena PDF dibuat terpisah lewat reportlab, bukan CSS ini). */
+    html, body, [class^="st-"], [class*=" st-"] { font-size: 14px; }
+    h1 { font-size: 1.5rem !important; }
+    h2 { font-size: 1.2rem !important; }
+    h3, h4 { font-size: 1.05rem !important; }
+    .stMarkdown p, .stMarkdown li, div[data-testid="stCaptionContainer"] { font-size: 0.85rem !important; }
+    .stButton > button { font-size: 0.85rem !important; }
+    div[data-testid="stTextInput"] input,
+    div[data-testid="stSelectbox"] div,
+    div[data-testid="stDateInput"] input { font-size: 0.85rem !important; }
+    div[data-testid="stDataFrame"] { font-size: 0.8rem !important; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -1673,42 +1686,16 @@ for key, default in [
     if key not in st.session_state:
         st.session_state[key] = default
 
-
-# =====================================================================
-# 10. SIDEBAR / NAVIGASI
-# =====================================================================
-
-with st.sidebar:
-    st.markdown("## 📦 Sistem BAPP")
-    st.markdown("")
-
-    st.markdown("**Penerimaan BAPP**")
-    if st.button("📋 Daftar Penerimaan BAPP", use_container_width=True,
-                 type="primary" if st.session_state.halaman in ("daftar", "detail") else "secondary"):
-        st.session_state.halaman = "daftar"
-        st.rerun()
-    if st.button("➕ Buat Penerimaan Baru", use_container_width=True,
-                 type="primary" if st.session_state.halaman == "form_baru" else "secondary"):
-        buka_dialog_penerimaan_baru()
-
-    st.markdown("---")
-    if st.button("⚙️ Pengaturan", use_container_width=True,
-                 type="primary" if st.session_state.halaman == "pengaturan" else "secondary"):
-        st.session_state.halaman = "pengaturan"
-        st.rerun()
-
-    st.caption(f"Data master: {st.session_state.get('last_refresh', 'belum dimuat')}")
-
 if st.session_state.get("load_error"):
     st.warning(f"⚠️ Gagal memuat data master dari Google Spreadsheet: {st.session_state.load_error}")
 
 
 # =====================================================================
-# 11. HALAMAN: DAFTAR PENERIMAAN BAPP
+# 10. HALAMAN: DAFTAR PENERIMAAN BAPP
 # =====================================================================
 
 if st.session_state.halaman == "daftar":
-    c_judul, c_tombol = st.columns([5, 2])
+    c_judul, c_tombol, c_setting = st.columns([5, 2, 0.7])
     with c_judul:
         st.title("Daftar Penerimaan BAPP")
         st.caption("Kelola dan pantau seluruh penerimaan BAPP")
@@ -1716,6 +1703,11 @@ if st.session_state.halaman == "daftar":
         st.write("")
         if st.button("+ Buat Penerimaan Baru", type="primary", use_container_width=True):
             buka_dialog_penerimaan_baru()
+    with c_setting:
+        st.write("")
+        if st.button("⚙️", use_container_width=True, help="Pengaturan"):
+            st.session_state.halaman = "pengaturan"
+            st.rerun()
 
     df_riwayat = get_riwayat()
 
@@ -1811,7 +1803,7 @@ if st.session_state.halaman == "daftar":
 
 
 # =====================================================================
-# 12. HALAMAN: SCAN BAPP (setelah popup Buat Penerimaan Baru)
+# 11. HALAMAN: SCAN BAPP (setelah popup Buat Penerimaan Baru)
 # =====================================================================
 
 elif st.session_state.halaman == "form_baru":
@@ -1890,7 +1882,7 @@ elif st.session_state.halaman == "form_baru":
 
 
 # =====================================================================
-# 13. HALAMAN: DETAIL PENERIMAAN
+# 12. HALAMAN: DETAIL PENERIMAAN
 # =====================================================================
 
 elif st.session_state.halaman == "detail":
@@ -1952,10 +1944,14 @@ elif st.session_state.halaman == "detail":
 
 
 # =====================================================================
-# 14. HALAMAN: PENGATURAN
+# 13. HALAMAN: PENGATURAN
 # =====================================================================
 
 elif st.session_state.halaman == "pengaturan":
+    if st.button("← Kembali ke Daftar Penerimaan"):
+        st.session_state.halaman = "daftar"
+        st.rerun()
+
     st.title("⚙️ Pengaturan")
 
     st.subheader("Data Master")
