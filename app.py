@@ -967,6 +967,33 @@ def buat_sel_barcode(nilai, style_teks=None):
 # CETAK PDF PENERIMAAN
 # =====================================================================
 
+class NumberedCanvas(pdfcanvas.Canvas):
+    def __init__(self, *args, **kwargs):
+        pdfcanvas.Canvas.__init__(self, *args, **kwargs)
+        self._saved_page_states = []
+
+    def showPage(self):
+        self._saved_page_states.append(dict(self.__dict__))
+        self._startPage()
+
+    def save(self):
+        total_halaman = len(self._saved_page_states)
+        for state in self._saved_page_states:
+            self.__dict__.update(state)
+            self._gambar_nomor_halaman(total_halaman)
+            pdfcanvas.Canvas.showPage(self)
+        pdfcanvas.Canvas.save(self)
+
+    def _gambar_nomor_halaman(self, total_halaman):
+        self.setFont("Helvetica", 8)
+        lebar_halaman = self._pagesize[0]
+        self.drawRightString(
+            lebar_halaman - 1 * cm,
+            1.1 * cm,
+            f"Halaman {self._pageNumber} dari {total_halaman}"
+        )
+
+
 def buat_pdf_penerimaan(info, tabel_df):
     """
     Membuat PDF Bukti Penerimaan BAPP.
