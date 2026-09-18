@@ -2001,25 +2001,30 @@ if st.session_state.halaman == "daftar":
                         else:
                             st.error(pesan_error)
                 else:
+                    # PDF dibuat hanya ketika tombol diklik agar halaman daftar tidak lag.
                     nomor_daftar = baris["Nomor Penerimaan"]
-                    tabel_daftar, info_daftar = get_detail_penerimaan(nomor_daftar)
-                    if info_daftar:
-                        pdf_daftar = buat_pdf_penerimaan(info_daftar, tabel_daftar)
-                        pdf_b64_daftar = base64.b64encode(pdf_daftar).decode("utf-8")
-                        # Link PDF langsung: tidak memakai iframe/components.html
-                        # sehingga tombol tetap kecil dan sejajar dengan aksi lain.
-                        tombol_print_html = textwrap.dedent(f"""
-                            <a href="data:application/pdf;base64,{pdf_b64_daftar}"
-                               target="_blank" rel="noopener noreferrer"
-                               title="Print BAPP"
-                               style="display:flex;align-items:center;justify-content:center;
-                                      width:36px;height:36px;box-sizing:border-box;
-                                      border:1px solid #d9dee7;border-radius:9px;
-                                      background:#ffffff;color:#374151;
-                                      text-decoration:none;font-size:16px;line-height:1;
-                                      margin:0 auto;">🖨️</a>
-                        """).strip()
-                        st.markdown(tombol_print_html, unsafe_allow_html=True)
+                    with aksi_print:
+                        if st.button("🖨️", key=f"print_{nomor_daftar}", help="Print BAPP"):
+                            tabel_daftar, info_daftar = get_detail_penerimaan(nomor_daftar)
+                            if info_daftar:
+                                pdf_daftar = buat_pdf_penerimaan(info_daftar, tabel_daftar)
+                                pdf_b64_daftar = base64.b64encode(pdf_daftar).decode("utf-8")
+                                components.html(
+                                    f"""
+                                    <script>
+                                    (function() {{
+                                        const raw = atob(\"{pdf_b64_daftar}\");
+                                        const bytes = new Uint8Array(raw.length);
+                                        for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+                                        const url = URL.createObjectURL(new Blob([bytes], {{type: \"application/pdf\"}}));
+                                        const tab = window.open(url, \"_blank\");
+                                        if (!tab) window.location.href = url;
+                                    }})();
+                                    </script>
+                                    """,
+                                    height=0,
+                                    scrolling=False,
+                                )
 
                 if aksi_detail.button("👁", key=f"detail_{baris['Nomor Penerimaan']}", help="Lihat detail"):
                     st.session_state.halaman = "detail"
