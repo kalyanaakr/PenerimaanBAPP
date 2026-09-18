@@ -2001,30 +2001,40 @@ if st.session_state.halaman == "daftar":
                         else:
                             st.error(pesan_error)
                 else:
-                    # PDF dibuat hanya ketika tombol diklik agar halaman daftar tidak lag.
+                    # Kembalikan mekanisme awal: tombol HTML berada langsung di iframe
+                    # sehingga klik tetap dianggap sebagai user gesture browser.
                     nomor_daftar = baris["Nomor Penerimaan"]
-                    with aksi_print:
-                        if st.button("🖨️", key=f"print_{nomor_daftar}", help="Print BAPP"):
-                            tabel_daftar, info_daftar = get_detail_penerimaan(nomor_daftar)
-                            if info_daftar:
-                                pdf_daftar = buat_pdf_penerimaan(info_daftar, tabel_daftar)
-                                pdf_b64_daftar = base64.b64encode(pdf_daftar).decode("utf-8")
-                                components.html(
-                                    f"""
-                                    <script>
-                                    (function() {{
-                                        const raw = atob(\"{pdf_b64_daftar}\");
-                                        const bytes = new Uint8Array(raw.length);
-                                        for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
-                                        const url = URL.createObjectURL(new Blob([bytes], {{type: \"application/pdf\"}}));
-                                        const tab = window.open(url, \"_blank\");
-                                        if (!tab) window.location.href = url;
-                                    }})();
-                                    </script>
-                                    """,
-                                    height=0,
-                                    scrolling=False,
-                                )
+                    tabel_daftar, info_daftar = get_detail_penerimaan(nomor_daftar)
+                    if info_daftar:
+                        pdf_daftar = buat_pdf_penerimaan(info_daftar, tabel_daftar)
+                        pdf_b64_daftar = base64.b64encode(pdf_daftar).decode("ascii")
+                        tombol_id = "print_pdf_" + str(i)
+                        components.html(
+                            f"""
+                            <div style="display:flex;justify-content:center;align-items:center;">
+                                <button id="{tombol_id}" title="Print BAPP" style="
+                                    width:42px;height:38px;border:1px solid #d9dee8;
+                                    border-radius:9px;background:#fff;cursor:pointer;
+                                    font-size:18px;line-height:1;">🖨️</button>
+                            </div>
+                            <script>
+                            (function() {{
+                                const button = document.getElementById("{tombol_id}");
+                                if (!button) return;
+                                button.addEventListener("click", function() {{
+                                    const raw = atob("{pdf_b64_daftar}");
+                                    const bytes = new Uint8Array(raw.length);
+                                    for (let j = 0; j < raw.length; j++) bytes[j] = raw.charCodeAt(j);
+                                    const url = URL.createObjectURL(new Blob([bytes], {{type: "application/pdf"}}));
+                                    const tab = window.open(url, "_blank");
+                                    if (!tab) window.location.href = url;
+                                }});
+                            }})();
+                            </script>
+                            """,
+                            height=42,
+                            scrolling=False,
+                        )
 
                 if aksi_detail.button("👁", key=f"detail_{baris['Nomor Penerimaan']}", help="Lihat detail"):
                     st.session_state.halaman = "detail"
