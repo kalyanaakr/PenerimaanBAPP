@@ -19,6 +19,7 @@ import io
 import json
 import time
 import base64
+import textwrap
 from datetime import datetime
 
 import pandas as pd
@@ -2007,22 +2008,18 @@ if st.session_state.halaman == "daftar":
                         pdf_b64_daftar = base64.b64encode(pdf_daftar).decode("utf-8")
                         # Link PDF langsung: tidak memakai iframe/components.html
                         # sehingga tombol tetap kecil dan sejajar dengan aksi lain.
-                        st.markdown(
-                            f"""
-                            <a href=\"data:application/pdf;base64,{pdf_b64_daftar}\"
-                               target=\"_blank\" rel=\"noopener noreferrer\"
-                               title=\"Print BAPP\"
-                               style=\"
-                                   display:flex; align-items:center; justify-content:center;
-                                   width:36px; height:36px; box-sizing:border-box;
-                                   border:1px solid #d9dee7; border-radius:9px;
-                                   background:#ffffff; color:#374151;
-                                   text-decoration:none; font-size:16px;
-                                   line-height:1; margin:0 auto;
-                               \"">🖨️</a>
-                            """,
-                            unsafe_allow_html=True,
-                        )
+                        tombol_print_html = textwrap.dedent(f"""
+                            <a href="data:application/pdf;base64,{pdf_b64_daftar}"
+                               target="_blank" rel="noopener noreferrer"
+                               title="Print BAPP"
+                               style="display:flex;align-items:center;justify-content:center;
+                                      width:36px;height:36px;box-sizing:border-box;
+                                      border:1px solid #d9dee7;border-radius:9px;
+                                      background:#ffffff;color:#374151;
+                                      text-decoration:none;font-size:16px;line-height:1;
+                                      margin:0 auto;">🖨️</a>
+                        """).strip()
+                        st.markdown(tombol_print_html, unsafe_allow_html=True)
 
                 if aksi_detail.button("👁", key=f"detail_{baris['Nomor Penerimaan']}", help="Lihat detail"):
                     st.session_state.halaman = "detail"
