@@ -2001,40 +2001,12 @@ if st.session_state.halaman == "daftar":
                         else:
                             st.error(pesan_error)
                 else:
-                    # Kembalikan mekanisme awal: tombol HTML berada langsung di iframe
-                    # sehingga klik tetap dianggap sebagai user gesture browser.
+                    # Jangan membuat PDF saat seluruh daftar sedang dirender.
+                    # PDF hanya dibuat setelah tombol Print diklik agar halaman tetap ringan.
                     nomor_daftar = baris["Nomor Penerimaan"]
-                    tabel_daftar, info_daftar = get_detail_penerimaan(nomor_daftar)
-                    if info_daftar:
-                        pdf_daftar = buat_pdf_penerimaan(info_daftar, tabel_daftar)
-                        pdf_b64_daftar = base64.b64encode(pdf_daftar).decode("ascii")
-                        tombol_id = "print_pdf_" + str(i)
-                        components.html(
-                            f"""
-                            <div style="display:flex;justify-content:center;align-items:center;">
-                                <button id="{tombol_id}" title="Print BAPP" style="
-                                    width:42px;height:38px;border:1px solid #d9dee8;
-                                    border-radius:9px;background:#fff;cursor:pointer;
-                                    font-size:18px;line-height:1;">🖨️</button>
-                            </div>
-                            <script>
-                            (function() {{
-                                const button = document.getElementById("{tombol_id}");
-                                if (!button) return;
-                                button.addEventListener("click", function() {{
-                                    const raw = atob("{pdf_b64_daftar}");
-                                    const bytes = new Uint8Array(raw.length);
-                                    for (let j = 0; j < raw.length; j++) bytes[j] = raw.charCodeAt(j);
-                                    const url = URL.createObjectURL(new Blob([bytes], {{type: "application/pdf"}}));
-                                    const tab = window.open(url, "_blank");
-                                    if (!tab) window.location.href = url;
-                                }});
-                            }})();
-                            </script>
-                            """,
-                            height=42,
-                            scrolling=False,
-                        )
+                    if aksi_print.button("🖨️", key=f"print_{nomor_daftar}", help="Buka / print PDF"):
+                        st.session_state["print_nomor_daftar"] = nomor_daftar
+                        st.rerun()
 
                 if aksi_detail.button("👁", key=f"detail_{baris['Nomor Penerimaan']}", help="Lihat detail"):
                     st.session_state.halaman = "detail"
@@ -2044,6 +2016,18 @@ if st.session_state.halaman == "daftar":
                 if sedang_open:
                     if aksi_lain.button("🗑", key=f"hapusdaftar_{baris['Nomor Penerimaan']}", help="Hapus penerimaan"):
                         dialog_konfirmasi_hapus_penerimaan(baris["Nomor Penerimaan"])
+
+        # Render PDF hanya untuk satu penerimaan yang dipilih, bukan untuk setiap baris.
+        nomor_print = st.session_state.pop("print_nomor_daftar", None)
+        if nomor_print:
+            tabel_print, info_print = get_detail_penerimaan(nomor_print)
+            if info_print:
+                with st.spinner("Menyiapkan PDF..."):
+                    pdf_print = buat_pdf_penerimaan(info_print, tabel_print)
+                render_tombol_pdf(
+                    pdf_print,
+                    f"Bukti_Penerimaan_{nomor_print}.pdf",
+                )
 
         st.markdown("---")
         cp1, cp2, cp3 = st.columns([1, 2, 1])
