@@ -1989,7 +1989,7 @@ if st.session_state.halaman == "daftar":
 
             # Satu area aksi agar tampilan tabel tetap rapi.
             with c9:
-                aksi_print, aksi_detail, aksi_lain = st.columns([1, 1, 1], gap="small")
+                aksi_print, aksi_detail, aksi_lain = st.columns([1, 1, 1])
 
                 if sedang_open:
                     if aksi_print.button("✏️", key=f"edit_{baris['Nomor Penerimaan']}", help="Lanjutkan penerimaan"):
