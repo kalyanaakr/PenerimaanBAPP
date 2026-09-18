@@ -19,7 +19,6 @@ import io
 import json
 import time
 import base64
-import textwrap
 from datetime import datetime
 
 import pandas as pd
@@ -1961,18 +1960,14 @@ if st.session_state.halaman == "daftar":
         awal = (halaman_ke - 1) * UKURAN_HALAMAN_DAFTAR
         potongan = hasil.iloc[awal:awal + UKURAN_HALAMAN_DAFTAR]
 
-        # Tabel dibuat lebih ringkas: semua aksi berada dalam satu kolom,
-        # sehingga tidak ada kolom kosong/garis terpisah yang membuat UI berantakan.
-        lebar = [0.38, 1.15, 0.9, 1.15, 0.78, 0.58, 0.82, 0.95, 1.15]
-        judul_kolom = [
-            "No", "Nomor Penerimaan", "Tanggal", "Pengirim", "Direktorat",
-            "Jumlah", "PIC", "Status", "Aksi"
-        ]
+        lebar = [0.4, 1.1, 0.9, 1.1, 0.8, 0.6, 0.8, 1.1, 0.4, 0.4, 0.4]
+        judul_kolom = ["No", "Nomor Penerimaan", "Tanggal", "Pengirim", "Direktorat",
+                        "Jumlah", "PIC", "Status", "", "", ""]
         for kolom, teks in zip(st.columns(lebar), judul_kolom):
             kolom.markdown(f"**{teks}**")
 
         for i, (_, baris) in enumerate(potongan.iterrows(), start=awal + 1):
-            c1, c2, c3, c4, c5, c6, c7, c8, c9 = st.columns(lebar)
+            c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11 = st.columns(lebar)
             c1.write(i)
             c2.write(baris["Nomor Penerimaan"])
             c3.write(baris.get("Tanggal", "-"))
@@ -1985,49 +1980,68 @@ if st.session_state.halaman == "daftar":
             sedang_open = status == STATUS_OPEN
             if sedang_open:
                 c8.markdown(render_badge("🟡 OPEN", "kuning"), unsafe_allow_html=True)
+                if c9.button("✏️", key=f"edit_{baris['Nomor Penerimaan']}", help="Lanjutkan penerimaan"):
+                    berhasil, pesan_error = muat_penerimaan_open(baris["Nomor Penerimaan"])
+                    if berhasil:
+                        st.session_state.halaman = "form_baru"
+                        st.rerun()
+                    else:
+                        st.error(pesan_error)
             else:
                 c8.markdown(render_badge("🟢 DITERIMA", "hijau"), unsafe_allow_html=True)
+                # Print langsung dari daftar tanpa panel/popup Streamlit.
+                nomor_daftar = baris["Nomor Penerimaan"]
+                tabel_daftar, info_daftar = get_detail_penerimaan(nomor_daftar)
+                if info_daftar:
+                    with c9:
+                        pdf_daftar = buat_pdf_penerimaan(info_daftar, tabel_daftar)
+                        pdf_b64_daftar = base64.b64encode(pdf_daftar).decode("utf-8")
+                        components.html(
+                            f"""
+                            <button id="btnPrintDaftar_{i}" title="Print BAPP" style="
+                                width:100%; height:38px; border:1px solid #d1d5db;
+                                border-radius:8px; background:#ffffff; color:#111827;
+                                font-size:18px; cursor:pointer;
+                            ">🖨️</button>
+                            <script>
+                            (function() {{
+                                const tombol = document.getElementById("btnPrintDaftar_{i}");
+                                const base64Data = "{pdf_b64_daftar}";
 
-            # Satu area aksi agar tampilan tabel tetap rapi.
-            with c9:
-                aksi_print, aksi_detail, aksi_lain = st.columns([1, 1, 1])
+                                tombol.addEventListener("click", function() {{
+                                    const byteChars = atob(base64Data);
+                                    const byteNumbers = new Array(byteChars.length);
+                                    for (let j = 0; j < byteChars.length; j++) {{
+                                        byteNumbers[j] = byteChars.charCodeAt(j);
+                                    }}
+                                    const blob = new Blob([new Uint8Array(byteNumbers)], {{ type: "application/pdf" }});
+                                    const blobUrl = URL.createObjectURL(blob);
 
-                if sedang_open:
-                    if aksi_print.button("✏️", key=f"edit_{baris['Nomor Penerimaan']}", help="Lanjutkan penerimaan"):
-                        berhasil, pesan_error = muat_penerimaan_open(baris["Nomor Penerimaan"])
-                        if berhasil:
-                            st.session_state.halaman = "form_baru"
-                            st.rerun()
-                        else:
-                            st.error(pesan_error)
-                else:
-                    # Jangan membuat PDF saat seluruh daftar sedang dirender.
-                    # PDF hanya dibuat setelah tombol Print diklik agar halaman tetap ringan.
-                    nomor_daftar = baris["Nomor Penerimaan"]
-                    if aksi_print.button("🖨️", key=f"print_{nomor_daftar}", help="Buka / print PDF"):
-                        st.session_state["print_nomor_daftar"] = nomor_daftar
-                        st.rerun()
+                                    // Buka tab baru dan langsung arahkan ke Blob URL.
+                                    // Tidak memakai data: URL yang kadang baru tampil setelah refresh.
+                                    const tab = window.open("about:blank", "_blank");
+                                    if (tab) {{
+                                        tab.location.href = blobUrl;
+                                        setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+                                    }} else {{
+                                        // Fallback jika browser memblokir tab baru.
+                                        window.location.href = blobUrl;
+                                    }}
+                                }});
+                            }})();
+                            </script>
+                            """,
+                            height=45,
+                        )
 
-                if aksi_detail.button("👁", key=f"detail_{baris['Nomor Penerimaan']}", help="Lihat detail"):
-                    st.session_state.halaman = "detail"
-                    st.session_state.detail_nomor = baris["Nomor Penerimaan"]
-                    st.rerun()
+            if c10.button("👁", key=f"detail_{baris['Nomor Penerimaan']}", help="Lihat detail"):
+                st.session_state.halaman = "detail"
+                st.session_state.detail_nomor = baris["Nomor Penerimaan"]
+                st.rerun()
 
-                if sedang_open:
-                    if aksi_lain.button("🗑", key=f"hapusdaftar_{baris['Nomor Penerimaan']}", help="Hapus penerimaan"):
-                        dialog_konfirmasi_hapus_penerimaan(baris["Nomor Penerimaan"])
-
-        # Render PDF hanya untuk satu penerimaan yang dipilih, bukan untuk setiap baris.
-        nomor_print = st.session_state.pop("print_nomor_daftar", None)
-        if nomor_print:
-            tabel_print, info_print = get_detail_penerimaan(nomor_print)
-            if info_print:
-                with st.spinner("Menyiapkan PDF..."):
-                    pdf_print = buat_pdf_penerimaan(info_print, tabel_print)
-                render_tombol_pdf(
-                    pdf_print,
-                    f"Bukti_Penerimaan_{nomor_print}.pdf",
-                )
+            if sedang_open:
+                if c11.button("🗑", key=f"hapusdaftar_{baris['Nomor Penerimaan']}", help="Hapus penerimaan"):
+                    dialog_konfirmasi_hapus_penerimaan(baris["Nomor Penerimaan"])
 
         st.markdown("---")
         cp1, cp2, cp3 = st.columns([1, 2, 1])
