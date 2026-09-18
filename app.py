@@ -2005,34 +2005,23 @@ if st.session_state.halaman == "daftar":
                     if info_daftar:
                         pdf_daftar = buat_pdf_penerimaan(info_daftar, tabel_daftar)
                         pdf_b64_daftar = base64.b64encode(pdf_daftar).decode("utf-8")
-                        components.html(
+                        # Link PDF langsung: tidak memakai iframe/components.html
+                        # sehingga tombol tetap kecil dan sejajar dengan aksi lain.
+                        st.markdown(
                             f"""
-                            <button id="btnPrintDaftar_{i}" title="Print BAPP" style="
-                                width:100%; height:32px; border:1px solid #d1d5db;
-                                border-radius:7px; background:#ffffff; color:#374151;
-                                font-size:15px; line-height:1; cursor:pointer;
-                                display:flex; align-items:center; justify-content:center;
-                            ">🖨️</button>
-                            <script>
-                            (function() {{
-                                const tombol = document.getElementById("btnPrintDaftar_{i}");
-                                const base64Data = "{pdf_b64_daftar}";
-                                tombol.addEventListener("click", function() {{
-                                    const byteChars = atob(base64Data);
-                                    const byteNumbers = new Array(byteChars.length);
-                                    for (let j = 0; j < byteChars.length; j++) {{
-                                        byteNumbers[j] = byteChars.charCodeAt(j);
-                                    }}
-                                    const blob = new Blob([new Uint8Array(byteNumbers)], {{ type: "application/pdf" }});
-                                    const blobUrl = URL.createObjectURL(blob);
-                                    const tab = window.open(blobUrl, "_blank");
-                                    if (!tab) window.location.href = blobUrl;
-                                    setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
-                                }});
-                            }})();
-                            </script>
+                            <a href=\"data:application/pdf;base64,{pdf_b64_daftar}\"
+                               target=\"_blank\" rel=\"noopener noreferrer\"
+                               title=\"Print BAPP\"
+                               style=\"
+                                   display:flex; align-items:center; justify-content:center;
+                                   width:36px; height:36px; box-sizing:border-box;
+                                   border:1px solid #d9dee7; border-radius:9px;
+                                   background:#ffffff; color:#374151;
+                                   text-decoration:none; font-size:16px;
+                                   line-height:1; margin:0 auto;
+                               \"">🖨️</a>
                             """,
-                            height=35,
+                            unsafe_allow_html=True,
                         )
 
                 if aksi_detail.button("👁", key=f"detail_{baris['Nomor Penerimaan']}", help="Lihat detail"):
