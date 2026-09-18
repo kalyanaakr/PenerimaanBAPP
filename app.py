@@ -55,9 +55,6 @@ DB_FILE = os.path.join(BASE_DIR, "bapp_cadangan.db")
 # info "Last Update" / "Summary"), data sebenarnya mulai baris ke-4.
 BARIS_HEADER = 3
 
-# Data master otomatis di-refresh ulang kalau sudah lebih tua dari ini (detik).
-AUTO_REFRESH_DETIK = 90  # 90 detik -- dipakai bareng auto-reload halaman Daftar
-
 # Kolom data sekolah yang dibaca dari sheet "data" (sudah ada dari awal).
 # "Nomor Urut Penerimaan" (tanpa akhiran) adalah nomor urut dari penerimaan
 # PERTAMA -- dipakai di sini murni sebagai referensi tampilan, tidak diubah.
@@ -151,6 +148,7 @@ def get_conn():
     return sqlite3.connect(DB_FILE, check_same_thread=False)
 
 
+@st.cache_resource
 def init_db():
     conn = get_conn()
     cur = conn.cursor()
@@ -292,6 +290,7 @@ def get_worksheet():
     return _panggil_dengan_retry(lambda: sh.worksheet(SHEET_NAME))
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def load_master_data():
     ws = get_worksheet()
     semua = _panggil_dengan_retry(lambda: ws.get_all_values())
@@ -320,6 +319,8 @@ def load_master_data():
 
 def refresh_master_data():
     try:
+        load_master_data.clear()
+        _header_dan_idx_kolom_tulis.clear()
         df = load_master_data()
         missing = [k for k in KOLOM_WAJIB if k not in df.columns]
         if missing:
@@ -329,6 +330,7 @@ def refresh_master_data():
             )
             return False
         st.session_state.master_df = df
+        _invalidate_derived_cache()
         st.session_state.last_refresh = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         st.session_state.last_refresh_ts = datetime.now()
         st.session_state.load_error = None
@@ -364,16 +366,18 @@ def generate_nomor_penerimaan(direktorat):
     df = st.session_state.get("master_df", pd.DataFrame())
     max_urut = 0
     if not df.empty and KOLOM_NOMOR_BARU in df.columns:
-        existing = df[KOLOM_NOMOR_BARU].astype(str).str.strip()
-        for val in existing[existing.str.startswith(prefix)]:
-            suffix = val[len(prefix):]
-            if suffix.isdigit():
-                max_urut = max(max_urut, int(suffix))
+        existing = df[KOLOM_NOMOR_BARU].astype("string").str.strip()
+        kandidat = existing[existing.str.startswith(prefix, na=False)].str.slice(len(prefix))
+        kandidat = pd.to_numeric(kandidat, errors="coerce")
+        if not kandidat.empty and kandidat.notna().any():
+            max_urut = int(kandidat.max())
 
     return f"{prefix}{max_urut + 1:03d}"
 
 
-def _header_dan_idx_kolom_tulis(ws):
+@st.cache_data(ttl=600, show_spinner=False)
+def _header_dan_idx_kolom_tulis():
+    ws = get_worksheet()
     header = [h.strip() for h in _panggil_dengan_retry(lambda: ws.row_values(BARIS_HEADER))]
     missing = [k for k in KOLOM_TULIS if k not in header]
     if missing:
@@ -386,7 +390,7 @@ def catat_scan_ke_spreadsheet(item, info, urutan):
     berstatus OPEN -- supaya progress tidak hilang walau browser ditutup dan
     bisa dilanjutkan lagi nanti (lihat muat_penerimaan_open)."""
     ws = get_worksheet()
-    idx = _header_dan_idx_kolom_tulis(ws)
+    idx = _header_dan_idx_kolom_tulis()
 
     waktu_tulis = info["tanggal"].strftime("%d/%m/%Y")
     timestamp_urut = info.get("waktu_buat") or datetime.now().strftime("%d/%m/%Y %H:%M:%S.%f")
@@ -408,6 +412,7 @@ def catat_scan_ke_spreadsheet(item, info, urutan):
     for k, v in nilai.items():
         df.loc[mask, k] = v
     st.session_state.master_df = df
+    _invalidate_derived_cache()
 
     # cadangan lokal di-update setiap scan supaya selalu mencerminkan progress terkini
     simpan_cadangan_lokal(
@@ -420,7 +425,7 @@ def hapus_satu_baris_bapp(item):
     """Mengosongkan kembali 6 kolom penerimaan baru untuk SATU baris BAPP saja
     (dipakai saat hapus 1 baris dari penerimaan yang masih OPEN)."""
     ws = get_worksheet()
-    idx = _header_dan_idx_kolom_tulis(ws)
+    idx = _header_dan_idx_kolom_tulis()
     baris = item["_baris_sheet"]
     updates = [{"range": rowcol_to_a1(baris, idx[k]), "values": [[""]]} for k in KOLOM_TULIS]
     _panggil_dengan_retry(lambda: ws.batch_update(updates, value_input_option="RAW"))
@@ -430,6 +435,7 @@ def hapus_satu_baris_bapp(item):
     for k in KOLOM_TULIS:
         df.loc[mask, k] = ""
     st.session_state.master_df = df
+    _invalidate_derived_cache()
 
 
 def tutup_penerimaan(nomor_penerimaan):
@@ -442,7 +448,7 @@ def tutup_penerimaan(nomor_penerimaan):
         raise RuntimeError("Tidak ada BAPP dalam penerimaan ini untuk ditutup.")
 
     ws = get_worksheet()
-    idx = _header_dan_idx_kolom_tulis(ws)
+    idx = _header_dan_idx_kolom_tulis()
 
     updates = [
         {"range": rowcol_to_a1(int(item["_baris_sheet"]), idx[KOLOM_STATUS_BARU]), "values": [[STATUS_DITERIMA]]}
@@ -453,6 +459,7 @@ def tutup_penerimaan(nomor_penerimaan):
     mask = df[KOLOM_NOMOR_BARU].astype(str) == str(nomor_penerimaan)
     df.loc[mask, KOLOM_STATUS_BARU] = STATUS_DITERIMA
     st.session_state.master_df = df
+    _invalidate_derived_cache()
 
 
 def muat_penerimaan_open(nomor_penerimaan):
@@ -520,7 +527,7 @@ def hapus_penerimaan(nomor_penerimaan):
         return
 
     ws = get_worksheet()
-    idx = _header_dan_idx_kolom_tulis(ws)
+    idx = _header_dan_idx_kolom_tulis()
 
     updates = []
     for _, item in baris_terkait.iterrows():
@@ -533,11 +540,46 @@ def hapus_penerimaan(nomor_penerimaan):
     for kolom in KOLOM_TULIS:
         df.loc[mask, kolom] = ""
     st.session_state.master_df = df
+    _invalidate_derived_cache()
 
     hapus_cadangan_lokal(nomor_penerimaan)
 
 
+def _master_revision():
+    return st.session_state.get("master_revision", 0)
+
+
+def _invalidate_derived_cache():
+    st.session_state.master_revision = _master_revision() + 1
+    st.session_state.pop("riwayat_cache", None)
+    st.session_state.pop("dashboard_cache", None)
+    st.session_state.pop("detail_cache", None)
+    st.session_state.pop("pdf_cache", None)
+
+
+def get_dashboard_ringkas():
+    revision = _master_revision()
+    cached = st.session_state.get("dashboard_cache")
+    if cached and cached[0] == revision:
+        return cached[1], cached[2]
+    df = st.session_state.get("master_df", pd.DataFrame())
+    total_hari_ini = total_diterima = 0
+    if not df.empty and KOLOM_WAKTU_BARU in df.columns:
+        nilai = df[KOLOM_WAKTU_BARU].astype("string")
+        hari_ini = datetime.now().strftime("%d/%m/%Y")
+        total_hari_ini = int(nilai.str.startswith(hari_ini, na=False).sum())
+    if not df.empty and KOLOM_STATUS_BARU in df.columns:
+        nilai = df[KOLOM_STATUS_BARU].astype("string").str.strip().str.upper()
+        total_diterima = int((nilai == STATUS_DITERIMA).sum())
+    st.session_state.dashboard_cache = (revision, total_hari_ini, total_diterima)
+    return total_hari_ini, total_diterima
+
+
 def get_riwayat():
+    revision = _master_revision()
+    cached = st.session_state.get("riwayat_cache")
+    if cached and cached[0] == revision:
+        return cached[1].copy()
     kosong = pd.DataFrame(columns=["Nomor Penerimaan", "Tanggal", "Pengirim", "Direktorat", "Jumlah BAPP", "PIC", "Status"])
     df = st.session_state.get("master_df", pd.DataFrame())
     if df.empty or KOLOM_NOMOR_BARU not in df.columns:
@@ -607,7 +649,9 @@ def get_riwayat():
         if kolom not in ringkasan.columns:
             ringkasan[kolom] = ""
 
-    return ringkasan.reset_index(drop=True)
+    hasil_riwayat = ringkasan.reset_index(drop=True)
+    st.session_state.riwayat_cache = (revision, hasil_riwayat)
+    return hasil_riwayat.copy()
 
 
 def ekstrak_nomor_penerimaan_pertama(nilai):
@@ -637,11 +681,18 @@ def format_tanggal_bapp(nilai):
 
 
 def get_detail_penerimaan(nomor_penerimaan):
+    nomor_kunci = str(nomor_penerimaan)
+    cache = st.session_state.setdefault("detail_cache", {})
+    cached = cache.get(nomor_kunci)
+    if cached is not None:
+        tabel_cached, info_cached = cached
+        return tabel_cached.copy(), info_cached.copy()
+
     df = st.session_state.get("master_df", pd.DataFrame())
     if df.empty or KOLOM_NOMOR_BARU not in df.columns:
         return pd.DataFrame(), {}
 
-    subset = df[df[KOLOM_NOMOR_BARU].astype(str) == str(nomor_penerimaan)].copy()
+    subset = df[df[KOLOM_NOMOR_BARU].astype(str) == nomor_kunci].copy()
     if subset.empty:
         return pd.DataFrame(), {}
 
@@ -677,6 +728,7 @@ def get_detail_penerimaan(nomor_penerimaan):
         "Nama Koordinator": kolom_atau_kosong("Nama Koordinator"),
     }).reset_index(drop=True)
 
+    cache[nomor_kunci] = (tabel.copy(), info.copy())
     return tabel, info
 
 
@@ -805,7 +857,7 @@ def pastikan_nomor_penerimaan_unik(info):
     Mengembalikan True kalau nomornya sempat diganti (supaya bisa diberi
     tahu ke operator)."""
     ws = get_worksheet()
-    idx = _header_dan_idx_kolom_tulis(ws)
+    idx = _header_dan_idx_kolom_tulis()
     nilai_kolom = _panggil_dengan_retry(lambda: ws.col_values(idx[KOLOM_NOMOR_BARU]))
 
     nomor_sekarang = str(info.get("nomor_penerimaan", "")).strip()
@@ -881,69 +933,6 @@ def autofocus_scan_input():
         """,
         height=0,
     )
-
-
-def auto_refresh_halaman(detik=30):
-    """Reload otomatis halaman ini setiap N detik, supaya operator/
-    supervisor yang membuka Daftar Penerimaan BAPP melihat data terbaru
-    (termasuk perubahan dari operator lain) tanpa perlu klik tombol
-    Refresh manual. Catatan: karena ini reload penuh, isi kotak
-    cari/filter akan ikut ter-reset tiap kali reload terjadi."""
-    components.html(
-        f"""
-        <script>
-        setTimeout(function() {{
-            window.parent.location.reload();
-        }}, {detik * 1000});
-        </script>
-        """,
-        height=0,
-    )
-
-
-# =====================================================================
-# 6. CETAK PDF PENERIMAAN
-# =====================================================================
-
-class NumberedCanvas(pdfcanvas.Canvas):
-    def __init__(self, *args, **kwargs):
-        pdfcanvas.Canvas.__init__(self, *args, **kwargs)
-        self._saved_page_states = []
-
-    def showPage(self):
-        self._saved_page_states.append(dict(self.__dict__))
-        self._startPage()
-
-    def save(self):
-        total_halaman = len(self._saved_page_states)
-
-        for state in self._saved_page_states:
-            self.__dict__.update(state)
-            self._gambar_nomor_halaman(total_halaman)
-            pdfcanvas.Canvas.showPage(self)
-
-        pdfcanvas.Canvas.save(self)
-
-    def _gambar_nomor_halaman(self, total_halaman):
-        self.setFont("Helvetica", 8)
-
-        lebar_halaman = self._pagesize[0]
-
-        self.drawRightString(
-            lebar_halaman - 1 * cm,
-            1.1 * cm,
-            f"Halaman {self._pageNumber} dari {total_halaman}"
-        )
-
-
-# =====================================================================
-# FORMAT ISI CELL TABEL
-# =====================================================================
-
-NAMA_HARI_ID = {
-    0: "Senin", 1: "Selasa", 2: "Rabu", 3: "Kamis",
-    4: "Jumat", 5: "Sabtu", 6: "Minggu",
-}
 
 
 def tambah_nama_hari(tanggal_str):
@@ -1849,10 +1838,6 @@ init_db()
 
 if "master_df" not in st.session_state:
     refresh_master_data()
-else:
-    umur_detik = (datetime.now() - st.session_state.get("last_refresh_ts", datetime.min)).total_seconds()
-    if umur_detik > AUTO_REFRESH_DETIK:
-        refresh_master_data()
 
 for key, default in [
     ("scan_list", []),
@@ -1868,13 +1853,24 @@ if st.session_state.get("load_error"):
     st.warning(f"⚠️ Gagal memuat data master dari Google Spreadsheet: {st.session_state.load_error}")
 
 
+def get_pdf_cache(nomor, info, tabel):
+    """Cache PDF per nomor penerimaan agar rerun Streamlit tidak membuat
+    ulang PDF yang sama berkali-kali. Cache dibersihkan saat master berubah."""
+    cache = st.session_state.setdefault("pdf_cache", {})
+    kunci = str(nomor)
+    cached = cache.get(kunci)
+    if cached is None:
+        pdf_bytes = buat_pdf_penerimaan(info, tabel)
+        cached = (pdf_bytes, base64.b64encode(pdf_bytes).decode("utf-8"))
+        cache[kunci] = cached
+    return cached
+
+
 # =====================================================================
 # 10. HALAMAN: DAFTAR PENERIMAAN BAPP
 # =====================================================================
 
 if st.session_state.halaman == "daftar":
-    auto_refresh_halaman(90)
-
     c_judul, c_tombol, c_setting = st.columns([5, 2, 0.7])
     with c_judul:
         st.title("Daftar Penerimaan BAPP")
@@ -1894,19 +1890,7 @@ if st.session_state.halaman == "daftar":
     # (str.startswith, perbandingan ==) yang cepat walau datanya ~15rb
     # baris, BUKAN .apply() per-baris yang dulu bikin Dashboard lemot.
     # ------------------------------------------------------------------
-    df_master_ringkas = st.session_state.get("master_df", pd.DataFrame())
-    hari_ini_str = datetime.now().strftime("%d/%m/%Y")
-
-    total_hari_ini = 0
-    total_diterima = 0
-    if not df_master_ringkas.empty and KOLOM_WAKTU_BARU in df_master_ringkas.columns:
-        total_hari_ini = int(
-            df_master_ringkas[KOLOM_WAKTU_BARU].astype(str).str.startswith(hari_ini_str).sum()
-        )
-    if not df_master_ringkas.empty and KOLOM_STATUS_BARU in df_master_ringkas.columns:
-        total_diterima = int(
-            (df_master_ringkas[KOLOM_STATUS_BARU].astype(str).str.strip().str.upper() == STATUS_DITERIMA).sum()
-        )
+    total_hari_ini, total_diterima = get_dashboard_ringkas()
     persen_progress = (total_diterima / TARGET_TOTAL_BAPP * 100) if TARGET_TOTAL_BAPP else 0
 
     cm1, cm2, cm3 = st.columns(3)
@@ -1940,7 +1924,14 @@ if st.session_state.halaman == "daftar":
 
     hasil = df_riwayat.copy()
     if cari:
-        hasil = hasil[hasil.apply(lambda r: cari.lower() in str(r.values).lower(), axis=1)]
+        cari_lower = cari.strip().lower()
+        if cari_lower:
+            kolom_cari = [c for c in ("Nomor Penerimaan", "Pengirim", "Direktorat", "PIC") if c in hasil.columns]
+            if kolom_cari:
+                mask_cari = pd.Series(False, index=hasil.index)
+                for kolom in kolom_cari:
+                    mask_cari |= hasil[kolom].astype("string").str.lower().str.contains(cari_lower, regex=False, na=False)
+                hasil = hasil[mask_cari]
     if filter_direktorat != "Semua Direktorat":
         hasil = hasil[hasil["Direktorat"] == filter_direktorat]
     if filter_tanggal:
@@ -1994,8 +1985,7 @@ if st.session_state.halaman == "daftar":
                 tabel_daftar, info_daftar = get_detail_penerimaan(nomor_daftar)
                 if info_daftar:
                     with c9:
-                        pdf_daftar = buat_pdf_penerimaan(info_daftar, tabel_daftar)
-                        pdf_b64_daftar = base64.b64encode(pdf_daftar).decode("utf-8")
+                        pdf_daftar, pdf_b64_daftar = get_pdf_cache(nomor_daftar, info_daftar, tabel_daftar)
                         components.html(
                             f"""
                             <button id="btnPrintDaftar_{i}" title="Print BAPP" style="
